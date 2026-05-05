@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>南山產物「金頭家」專案投保指南 - 心智圖</title>
+
+<!-- 引入 Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- 引入 D3.js 與 Markmap 核心與 UI 套件 -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-view@0.18.12/dist/browser/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-toolbar@0.18.12/dist/index.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/markmap-toolbar@0.18.12/dist/style.css">
+
+<!-- 字型 -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+
+<!-- 儲存客戶規劃狀態的 JSON 區塊 -->
+<script id="app-state-data" type="application/json">{}</script>
+
+<style>
+  body { 
+    font-family: 'Noto Sans TC', "Microsoft JhengHei", sans-serif; 
+    background-color: #f8fafc; 
+    overflow: hidden; 
+  }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  /* 節點文字基礎樣式及過渡動畫 */
+  .markmap-node foreignObject {
+    overflow: visible !important; /* 避免文字放大後被外框裁切 */
+  }
+  .markmap-node foreignObject > div,
+  .markmap-node text {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: left center;
+    display: inline-block;
+  }
+  
+  /* 互動節點 (含連結或隱藏說明) 基礎樣式：粗體藍色 */
+  .interactive-base, #mindmap a {
+    color: #1d4ed8 !important; /* Tailwind blue-700 */
+    fill: #1d4ed8 !important;
+    font-weight: bold !important;
+    transition: color 0.2s cubic-bezier(0.4, 0, 0.2, 1), fill 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  #mindmap a {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  /* 未投保時的樣式 (覆蓋原本的粗體與藍色) */
+  #mindmap .interactive-base-uninsured,
+  #mindmap .interactive-base-uninsured a {
+    color: #9ca3af !important; /* Tailwind gray-400 */
+    fill: #9ca3af !important;
+    font-weight: normal !important;
+    text-decoration: line-through !important;
+    transition: color 0.2s, fill 0.2s;
+  }
+  
+  /* 懸停時：放大 15% 效果 */
+  #mindmap .markmap-node.interactive-hover foreignObject > div,
+  #mindmap .markmap-node.interactive-hover text {
+    transform: scale(1.15);
+    cursor: pointer;
+  }
+  
+  /* 確保懸停時內部重點文字皆變成紅色 */
+  #mindmap .markmap-node.interactive-hover foreignObject > div,
+  #mindmap .markmap-node.interactive-hover text,
+  #mindmap .markmap-node.interactive-hover a,
+  #mindmap .markmap-node.interactive-hover .interactive-base {
+    color: red !important;
+    fill: red !important;
+  }
+
+  /* 懸停時，未投保項目的提示色 */
+  #mindmap .markmap-node.interactive-hover .interactive-base-uninsured,
+  #mindmap .markmap-node.interactive-hover .interactive-base-uninsured a {
+    color: #ef4444 !important; /* Tailwind red-500 */
+    fill: #ef4444 !important;
+    text-decoration: line-through !important;
+  }
+
+  /* 專屬列印樣式設定 */
+  @media print {
+    body { background-color: white !important; }
+    /* 隱藏除了費率表面板以外的所有元素 */
+    body > *:not(#rate-table-modal) { display: none !important; }
+    
+    #rate-table-modal {
+      position: relative !important;
+      display: block !important;
+      background: white !important;
+    }
+    
+    #rate-table-modal > div {
+      box-shadow: none !important;
+      border: none !important;
+      max-height: none !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      padding: 0 !important;
+    }
+    
+    /* 隱藏列印與關閉等操作按鈕 */
+    .print-hidden { display: none !important; }
+    
+    /* 強制印出背景顏色(如表頭的灰色與表尾的橘色) */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+  }
+</style>
+</head>
+<body class="flex flex-col h-screen w-screen relative">
+
+<!-- 頂部標題列 -->
+<div class="w-full bg-white border-b border-gray-200 p-3 flex items-center gap-4 z-[100] shadow-sm">
+  <div class="flex items-center gap-2">
+    <div class="w-8 h-8 bg-sky-600 rounded-lg flex items-center justify-center text-white font-bold shadow">
+      金
+    </div>
+    <div class="text-lg font-bold text-gray-800" id="main-title">南山產物「金頭家」專案投保指南</div>
+  </div>
+
+  <div class="ml-auto flex items-center gap-4">
+    <!-- 總保費顯示區塊 (套用後顯示) -->
+    <div id="summary-bar" class="hidden items-center gap-3 bg-orange-50 px-4 py-1.5 rounded-lg border border-orange-200 shadow-inner">
+        <span class="text-sm font-bold text-orange-800">規劃總保費</span>
+        <span class="text-lg font-extrabold text-red-600" id="summary-premium">$0</span>
+    </div>
+    <button id="config-panel-btn" onclick="openConfigModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow transition-colors flex items-center gap-1">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        投保規劃設定
+    </button>
+  </div>
+</div>
+
+<!-- 控制工具列 -->
+<div class="w-full bg-white border-b border-gray-200 p-2 flex flex-wrap items-center gap-4 overflow-x-auto whitespace-nowrap scrollbar-hide shadow-sm z-50 relative">
+  <div class="flex items-center gap-2 border-l-4 border-orange-600 pl-2">
+    <span class="text-sm font-bold text-gray-500 mr-1">展開層級：</span>
+    <button onclick="setExpand(1)" id="exp-1" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">1</button>
+    <button onclick="setExpand(2)" id="exp-2" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">2</button>
+    <button onclick="setExpand(3)" id="exp-3" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">3</button>
+    <button onclick="setExpand(4)" id="exp-4" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all">4</button>
+    <button onclick="setExpand(99)" id="exp-all" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-orange-600 text-white shadow transition-all">全部</button>
+  </div>
+  <div class="flex items-center gap-2 border-l-4 border-sky-600 pl-2 ml-2">
+    <button onclick="openRateTableModal()" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-sky-100 text-sky-700 hover:bg-sky-200 transition-all border border-sky-300 shadow-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+      費率表
+    </button>
+    
+    <!-- 目錄按鈕 (對應 DM) -->
+    <button onclick="window.open('金頭家保單條款/金頭家專案_DM.pdf', '_blank')" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all border border-indigo-200 shadow-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      目錄
+    </button>
+
+    <!-- 要保書按鈕 -->
+    <button onclick="window.open('金頭家保單條款/金頭家專案_要保書.pdf', '_blank')" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 transition-all border border-teal-200 shadow-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+      要保書
+    </button>
+
+    <!-- FAQ按鈕 -->
+    <button onclick="window.open('金頭家保單條款/金頭家專案_FAQ.pdf', '_blank')" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 transition-all border border-purple-200 shadow-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      FAQ
+    </button>
+
+    <!-- 操作說明按鈕 -->
+    <button onclick="openHelpModal()" class="px-4 py-1.5 text-sm font-bold rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all border border-amber-200 shadow-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      操作說明
+    </button>
+  </div>
+</div>
+
+<!-- 心智圖容器 -->
+<div class="flex-1 relative bg-slate-50">
+  <svg id="mindmap" class="w-full h-full block"></svg>
+</div>
+
+<!-- RWD 螢幕中央隱藏式說明展示 (淡綠色背景) -->
+<div id="mindmap-tooltip" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 hidden w-[92%] sm:w-[85%] md:w-[75%] max-w-[480px] bg-[#dcfce7] border-2 border-[#86efac] text-[#14532d] p-4 md:p-6 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] z-[1000] transition-all duration-300 opacity-0 scale-95 break-words leading-relaxed"></div>
+
+<!-- 投保規劃設定 Modal -->
+<div id="config-modal" class="fixed inset-0 bg-slate-900/60 hidden z-[2000] flex items-center justify-center p-4">
+  <div class="bg-white w-full max-w-3xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+     <!-- Header -->
+     <div class="p-4 border-b flex justify-between items-center bg-sky-50">
+        <h2 class="text-xl font-bold text-sky-800 flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+            專屬投保規劃設定
+        </h2>
+        <button onclick="closeConfigModal()" class="text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center text-2xl transition-colors">&times;</button>
+     </div>
+     
+     <!-- Body (scrollable) -->
+     <div class="p-5 overflow-y-auto flex-1 space-y-5 text-gray-800">
+        <!-- 客戶名稱 -->
+        <div class="flex items-center gap-3 bg-gray-50 p-3 rounded-lg border">
+            <label class="font-bold text-gray-700 whitespace-nowrap">客戶名稱</label>
+            <input type="text" id="cfg-customer-name" class="border border-gray-300 rounded px-3 py-1.5 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="請輸入客戶或公司名稱">
+        </div>
+        
+        <div class="space-y-3">
+            <!-- 商業火災保險 -->
+            <div class="flex items-center gap-3 bg-white p-2 rounded hover:bg-slate-50 transition-colors">
+                <input type="checkbox" id="cfg-fire" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 cursor-pointer" onchange="calcTotal()">
+                <label for="cfg-fire" class="font-bold w-32 cursor-pointer">商業火災保險</label>
+                <select id="cfg-fire-plan" class="border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer" onchange="calcTotal()">
+                    <option value="方案一">方案一 (保額 100 萬)</option>
+                    <option value="方案二">方案二 (保額 300 萬)</option>
+                    <option value="方案三">方案三 (保額 500 萬)</option>
+                    <option value="方案四">方案四 (保額 800 萬)</option>
+                    <option value="方案五">方案五 (保額 1,000 萬)</option>
+                </select>
+                <div class="flex items-center gap-1">
+                    <span class="text-gray-500">$</span>
+                    <input type="number" id="cfg-fire-premium" class="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="保費" oninput="calcTotal()" min="0">
+                </div>
+            </div>
+
+            <!-- 停業損失 -->
+            <div class="flex items-center gap-3 bg-white p-2 rounded hover:bg-slate-50 transition-colors">
+                <input type="checkbox" id="cfg-biz" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 cursor-pointer" onchange="calcTotal()">
+                <label for="cfg-biz" class="font-bold w-32 cursor-pointer">停業損失補償</label>
+                <select id="cfg-biz-plan" class="border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer" onchange="calcTotal()">
+                    <option value="1000元">日額 1,000 元</option>
+                    <option value="2000元">日額 2,000 元</option>
+                    <option value="3000元">日額 3,000 元</option>
+                    <option value="5000元">日額 5,000 元</option>
+                </select>
+                <div class="flex items-center gap-1">
+                    <span class="text-gray-500">$</span>
+                    <input type="number" id="cfg-biz-premium" class="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="保費" oninput="calcTotal()" min="0">
+                </div>
+            </div>
+
+            <!-- 公共意外責任險區塊 -->
+            <div class="border border-sky-100 bg-sky-50/30 rounded-lg p-3 space-y-2">
+                <div class="flex items-center gap-3">
+                    <input type="checkbox" id="cfg-pub" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 cursor-pointer" onchange="calcTotal()">
+                    <label for="cfg-pub" class="font-bold w-32 text-sky-900 cursor-pointer">公共意外責任險</label>
+                    <select id="cfg-pub-plan" class="border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer" onchange="calcTotal()">
+                        <option value="方案一">方案一 (體傷 200萬/財損 200萬)</option>
+                        <option value="方案二">方案二 (體傷 300萬/財損 300萬)</option>
+                        <option value="方案三">方案三 (體傷 600萬/財損 300萬)</option>
+                    </select>
+                    <div class="flex items-center gap-1">
+                        <span class="text-gray-500">$</span>
+                        <input type="number" id="cfg-pub-premium" class="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="保費" oninput="calcTotal()" min="0">
+                    </div>
+                </div>
+                <!-- 附加條款 -->
+                <div class="pl-10 mt-2 flex items-center justify-between">
+                    <span class="text-sm font-bold text-sky-800">附加條款選項：</span>
+                    <div class="flex items-center gap-1.5 bg-orange-50 px-2 py-1 rounded border border-orange-200 cursor-pointer hover:bg-orange-100 transition-colors" onclick="document.getElementById('cfg-pub-all').click()">
+                        <input type="checkbox" id="cfg-pub-all" class="w-4 h-4 text-orange-600 rounded cursor-pointer focus:ring-orange-500" onclick="event.stopPropagation()" onchange="togglePubAll()">
+                        <label for="cfg-pub-all" class="text-sm font-extrabold text-orange-700 cursor-pointer" onclick="event.stopPropagation(); document.getElementById('cfg-pub-all').click()">✅ 5項全選 (免繳保費)</label>
+                    </div>
+                </div>
+                <div class="pl-10 grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <input type="checkbox" id="cfg-pub-food" class="w-4 h-4 text-sky-600 rounded cursor-pointer" onchange="checkPubAllState(); calcTotal()">
+                        <label for="cfg-pub-food" class="text-sm flex-1 cursor-pointer">食品中毒附加</label>
+                        <input type="text" id="cfg-pub-food-premium" class="border border-gray-300 rounded px-1 py-0.5 w-[76px] text-right text-sm focus:ring-1 focus:ring-sky-500" placeholder="保費" oninput="calcTotal()">
+                    </div>
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <input type="checkbox" id="cfg-pub-sign" class="w-4 h-4 text-sky-600 rounded cursor-pointer" onchange="checkPubAllState(); calcTotal()">
+                        <label for="cfg-pub-sign" class="text-sm flex-1 cursor-pointer">招牌責任附加</label>
+                        <input type="text" id="cfg-pub-sign-premium" class="border border-gray-300 rounded px-1 py-0.5 w-[76px] text-right text-sm focus:ring-1 focus:ring-sky-500" placeholder="保費" oninput="calcTotal()">
+                    </div>
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <input type="checkbox" id="cfg-pub-park" class="w-4 h-4 text-sky-600 rounded cursor-pointer" onchange="checkPubAllState(); calcTotal()">
+                        <label for="cfg-pub-park" class="text-sm flex-1 cursor-pointer">停車場責任附加</label>
+                        <input type="text" id="cfg-pub-park-premium" class="border border-gray-300 rounded px-1 py-0.5 w-[76px] text-right text-sm focus:ring-1 focus:ring-sky-500" placeholder="保費" oninput="calcTotal()">
+                    </div>
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <input type="checkbox" id="cfg-pub-elev" class="w-4 h-4 text-sky-600 rounded cursor-pointer" onchange="checkPubAllState(); calcTotal()">
+                        <label for="cfg-pub-elev" class="text-sm flex-1 cursor-pointer">電梯責任附加</label>
+                        <input type="text" id="cfg-pub-elev-premium" class="border border-gray-300 rounded px-1 py-0.5 w-[76px] text-right text-sm focus:ring-1 focus:ring-sky-500" placeholder="保費" oninput="calcTotal()">
+                    </div>
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <input type="checkbox" id="cfg-pub-cond" class="w-4 h-4 text-sky-600 rounded cursor-pointer" onchange="checkPubAllState(); calcTotal()">
+                        <label for="cfg-pub-cond" class="text-sm flex-1 cursor-pointer">慰問金費用附加</label>
+                        <input type="text" id="cfg-pub-cond-premium" class="border border-gray-300 rounded px-1 py-0.5 w-[76px] text-right text-sm focus:ring-1 focus:ring-sky-500" placeholder="保費" oninput="calcTotal()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 現金保險 -->
+            <div class="flex items-center gap-3 bg-white p-2 rounded hover:bg-slate-50 transition-colors">
+                <input type="checkbox" id="cfg-cash" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 cursor-pointer" onchange="calcTotal()">
+                <label for="cfg-cash" class="font-bold w-32 cursor-pointer">現金保險</label>
+                <select id="cfg-cash-plan" class="border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer" onchange="calcTotal()">
+                    <option value="方案a">方案a (保額 5 萬)</option>
+                    <option value="方案b">方案b (保額 10 萬)</option>
+                    <option value="方案c">方案c (保額 20 萬)</option>
+                </select>
+                <div class="flex items-center gap-1">
+                    <span class="text-gray-500">$</span>
+                    <input type="number" id="cfg-cash-premium" class="border border-gray-300 rounded px-2 py-1 w-24 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none" placeholder="保費" oninput="calcTotal()" min="0">
+                </div>
+            </div>
+
+            <!-- 雇主意外 (包含人數費率計算) -->
+            <div class="border border-sky-100 bg-sky-50/30 rounded-lg p-3 space-y-2">
+                <div class="flex items-center gap-3">
+                    <input type="checkbox" id="cfg-emp" class="w-5 h-5 text-sky-600 rounded focus:ring-sky-500 cursor-pointer" onchange="calcTotal()">
+                    <label for="cfg-emp" class="font-bold w-32 text-sky-900 cursor-pointer">雇主意外責任險</label>
+                    <select id="cfg-emp-plan" class="border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer" onchange="calcTotal()">
+                        <option value="方案一">方案一 (每人體傷 200 萬)</option>
+                        <option value="方案二">方案二 (每人體傷 300 萬)</option>
+                    </select>
+                    <div class="flex items-center gap-1">
+                        <span class="text-gray-500 font-bold">小計 $</span>
+                        <input type="number" id="cfg-emp-premium" class="border border-gray-300 rounded px-2 py-1 w-24 text-right bg-gray-100 font-bold focus:outline-none cursor-not-allowed" placeholder="自動計算" readonly>
+                    </div>
+                </div>
+                <!-- 費率與人數輸入 -->
+                <div class="pl-10 flex flex-wrap items-center gap-4">
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <label for="cfg-emp-rate" class="text-sm text-gray-600">每人費率</label>
+                        <input type="number" id="cfg-emp-rate" class="border border-gray-300 rounded px-2 py-1 w-20 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none text-sm" placeholder="$" oninput="calcEmpPremium()" min="0">
+                    </div>
+                    <div class="text-gray-400 font-bold text-sm">X</div>
+                    <div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded border border-gray-100">
+                        <label for="cfg-emp-count" class="text-sm text-gray-600">人數</label>
+                        <input type="number" id="cfg-emp-count" class="border border-gray-300 rounded px-2 py-1 w-20 text-right focus:ring-2 focus:ring-sky-500 focus:outline-none text-sm" placeholder="人" oninput="calcEmpPremium()" min="0">
+                    </div>
+                </div>
+            </div>
+        </div>
+     </div>
+     
+     <!-- Footer -->
+     <div class="p-4 border-t bg-gray-50 flex items-center justify-between">
+         <div class="text-lg font-bold text-gray-800">
+             合計保費：<span class="text-red-600 text-2xl" id="cfg-total-premium">$0</span>
+         </div>
+         <div class="flex gap-3">
+             <button onclick="applyConfig()" class="bg-sky-600 text-white px-5 py-2.5 rounded-lg font-bold shadow-md hover:bg-sky-700 hover:shadow-lg transition-all active:scale-95">
+                 套用更新心智圖
+             </button>
+             <button onclick="exportConfigHTML()" class="bg-green-600 text-white px-5 py-2.5 rounded-lg font-bold shadow-md hover:bg-green-700 hover:shadow-lg transition-all flex items-center gap-2 active:scale-95">
+                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                 另存 HTML 匯出
+             </button>
+         </div>
+     </div>
+  </div>
+</div>
+
+<!-- 費率表 Modal -->
+<div id="rate-table-modal" class="fixed inset-0 bg-slate-900/60 hidden z-[2000] flex items-center justify-center p-4">
+  <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+     <!-- Header -->
+     <div class="p-4 border-b flex justify-between items-center bg-sky-50">
+        <h2 class="text-xl font-bold text-sky-800 flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            投保項目費率表 <span id="rate-table-customer-name" class="text-orange-600 text-lg ml-2 font-bold"></span>
+        </h2>
+        <button onclick="closeRateTableModal()" class="text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center text-2xl transition-colors print-hidden">&times;</button>
+     </div>
+     
+     <!-- Body (scrollable) -->
+     <div class="p-5 overflow-y-auto flex-1 text-gray-800">
+        <table class="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+            <thead class="bg-gray-100">
+                <tr>
+                    <th class="border border-gray-300 px-4 py-2 text-left font-bold text-gray-700 w-1/3">保險項目</th>
+                    <th class="border border-gray-300 px-4 py-2 text-left font-bold text-gray-700">方案 / 說明</th>
+                    <th class="border border-gray-300 px-4 py-2 text-right font-bold text-gray-700 whitespace-nowrap">保費</th>
+                </tr>
+            </thead>
+            <tbody id="rate-table-body">
+                <!-- 動態生成內容 -->
+            </tbody>
+            <tfoot class="bg-orange-50">
+                <tr>
+                    <td colspan="2" class="border border-gray-300 px-4 py-3 text-right font-extrabold text-orange-800 text-lg">合計總保費</td>
+                    <td class="border border-gray-300 px-4 py-3 text-right font-extrabold text-red-600 text-xl" id="rate-table-total">$0</td>
+                </tr>
+            </tfoot>
+        </table>
+        <div id="rate-table-empty-msg" class="hidden text-center text-gray-500 py-8 font-bold">目前尚未規劃任何投保項目</div>
+     </div>
+     
+     <!-- Footer -->
+     <div class="p-4 border-t bg-gray-50 flex items-center justify-end gap-3 print-hidden">
+         <button onclick="window.print()" class="bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-bold shadow-md hover:bg-indigo-700 transition-all flex items-center gap-2 active:scale-95">
+             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+             列印費率表
+         </button>
+         <button onclick="closeRateTableModal()" class="bg-gray-500 text-white px-5 py-2.5 rounded-lg font-bold shadow-md hover:bg-gray-600 transition-all active:scale-95">
+             關閉
+         </button>
+     </div>
+  </div>
+</div>
+
+<!-- 操作說明 Modal -->
+<div id="help-modal" class="fixed inset-0 bg-slate-900/60 hidden z-[2000] flex items-center justify-center p-4">
+  <div class="bg-white w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+     <!-- Header -->
+     <div class="p-4 border-b flex justify-between items-center bg-amber-50">
+        <h2 class="text-xl font-bold text-amber-800 flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            系統操作指南
+        </h2>
+        <button onclick="closeHelpModal()" class="text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center text-2xl transition-colors">&times;</button>
+     </div>
+     
+     <!-- Body -->
+     <div class="p-6 overflow-y-auto flex-1 space-y-6 text-gray-800 text-[15px] leading-relaxed">
+        <div class="space-y-2">
+            <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-sm">1</span> 展開與收合心智圖
+            </h3>
+            <p class="pl-8">點擊畫面上方的 <strong>「展開層級 (1、2、3、4、全部)」</strong> 按鈕，即可快速切換心智圖顯示的詳細程度。您也可以直接點選各個文字節點右側的 ⭕ 圓圈，手動展開或收起下方的子項目。</p>
+        </div>
+
+        <div class="space-y-2">
+            <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-sm">2</span> 查看隱藏式理賠說明
+            </h3>
+            <p class="pl-8">畫面上只要帶有 <span class="text-blue-700 font-bold underline decoration-blue-400 underline-offset-4">藍色粗體底線</span> 的險種名稱或重點文字，當您將 <strong>滑鼠游標停留在文字上</strong> 時，畫面中央就會自動顯示專屬的理賠案例與注意事項說明框。</p>
+        </div>
+
+        <div class="space-y-2">
+            <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-sm">3</span> 閱讀完整「保單條款」
+            </h3>
+            <div class="pl-8 p-3 bg-red-50 border-l-4 border-red-500 rounded text-red-800 font-medium">
+                💡 <strong>雙擊開啟：</strong> 當隱藏式說明框跳出時，只要對著說明框 <strong>「連續點擊 2 下滑鼠左鍵」</strong>，系統就會為您開啟對應的 PDF 保單條款！<br>
+                👆 <strong>單擊關閉：</strong> 若您閱讀完畢，只要對著說明框 <strong>點擊 1 下</strong>，說明框就會自動關閉隱藏。
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-sm">4</span> 拖曳說明框不擋視線
+            </h3>
+            <p class="pl-8">當隱藏式說明框出現時，您可以按住最上方的 <strong>「綠色標題列把手」</strong>，自由將說明框拖曳到畫面上的任何位置，方便您對照心智圖閱讀。</p>
+        </div>
+        
+        <div class="space-y-2">
+            <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-sm">5</span> 製作客製化投保簡報
+            </h3>
+            <p class="pl-8">點擊右上角的 <strong>「投保規劃設定」</strong>，即可輸入客戶名稱並勾選方案來試算保費。設定完畢後，點選 <strong>「另存 HTML 匯出」</strong> 就能產生一份帶有客戶名稱、保費與專屬標記的獨立網頁檔案，可直接傳送給客戶觀看。</p>
+        </div>
+     </div>
+     
+     <!-- Footer -->
+     <div class="p-4 border-t bg-gray-50 flex items-center justify-end">
+         <button onclick="closeHelpModal()" class="bg-amber-500 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-amber-600 transition-all active:scale-95">
+             我知道了，開始使用
+         </button>
+     </div>
+  </div>
+</div>
+
+<script>
+  // 原始心智圖 JSON 資料 (已將所有 PDF 連結加上「金頭家保單條款/」資料夾路徑)
+  const sourceData = {"content":"<a href=\"金頭家保單條款/%E9%87%91%E9%A0%AD%E5%AE%B6%E5%B0%88%E6%A1%88_%E4%BF%9D%E5%96%AE%E6%A2%9D%E6%AC%BE.pdf\">&#x5357;&#x5c71;&#x7522;&#x7269;&#x300c;&#x91d1;&#x982d;&#x5bb6;&#x300d;&#x5c08;&#x6848;&#x6295;&#x4fdd;&#x6307;&#x5357;</a>","children":[{"content":"&#x4e00;&#x3001; &#x5404;&#x96aa;&#x7a2e;&#x4fdd;&#x969c;&#x65b9;&#x6848;&#x8207;&#x81ea;&#x8ca0;&#x984d;&#x6578;&#x64da;","children":[{"content":"1. <a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%95%86%E6%A5%AD%E7%81%AB%E7%81%BD%E4%BF%9D%E9%9A%AA.pdf\">&#x5546;&#x696d;&#x706b;&#x707d;&#x4fdd;&#x96aa;</a>&#xff08;&#x5171;5&#x500b;&#x65b9;&#x6848;&#xff09;","children":[{"content":"<strong>&#x4fdd;&#x969c;&#x65b9;&#x6848;&#xff08;&#x542b;&#x5efa;&#x7bc9;&#x7269;&#x3001;&#x88dd;&#x4fee;&#x3001;&#x8a2d;&#x5099;&#x3001;&#x8ca8;&#x7269;&#xff0c;&#x8ca8;&#x7269;&#x6700;&#x9ad8;&#x9650;300&#x842c;&#xff09;</strong>","children":[{"content":"&#x65b9;&#x6848;&#x4e00;&#xff1a;&#x4fdd;&#x984d; 100 &#x842c;&#x5143;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e8c;&#xff1a;&#x4fdd;&#x984d; 300 &#x842c;&#x5143;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e09;&#xff1a;&#x4fdd;&#x984d; 500 &#x842c;&#x5143;","children":[]},{"content":"&#x65b9;&#x6848;&#x56db;&#xff1a;&#x4fdd;&#x984d; 800 &#x842c;&#x5143;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e94;&#xff1a;&#x4fdd;&#x984d; 1,000 &#x842c;&#x5143;","children":[]}]},{"content":"<strong>&#x5efa;&#x7bc9;&#x7269;&#x6750;&#x8cea;&#x8207;&#x81ea;&#x8ca0;&#x984d;&#x5dee;&#x7570;&#xff08;&#x91cd;&#x9ede;&#x6ce8;&#x610f;&#xff09;</strong>","children":[{"content":"<strong>&#x6c34;&#x6ce5;&#x5e73;&#x5c4b;&#x9802;&#xff08;&#x6750;&#x8cea;1&#xff09;</strong>","children":[{"content":"&#x689d;&#x4ef6;&#xff1a;&#x7e3d;&#x6a13;&#x5c64;14&#x6a13;(&#x542b;)&#x4ee5;&#x4e0b;&#xff0c;&#x5916;&#x7246;&#x70ba;&#x92fc;&#x7b4b;&#x6df7;&#x51dd;&#x571f;&#x3001;&#x92fc;&#x9aa8;&#x6df7;&#x51dd;&#x571f;&#x6216;&#x78da;&#x9020;&#x3002;","children":[]},{"content":"&#x706b;&#x96aa;&#x81ea;&#x8ca0;&#x984d;&#xff1a;<strong>&#x300c;&#x7121;&#x300d;</strong>&#x3002;","children":[]},{"content":"&#x9644;&#x52a0;&#x96aa;&#x81ea;&#x8ca0;&#x984d;&#xff1a;<strong>&#x300c;&#x7121;&#x300d;</strong>&#x3002;","children":[]}]},{"content":"<strong>&#x91d1;&#x5c6c;/&#x9435;&#x76ae;&#x5c4b;&#x9802;&#xff08;&#x6750;&#x8cea;2&#xff09;</strong>","children":[{"content":"&#x689d;&#x4ef6;&#x9650;&#x5236;&#xff1a;&#x5c4b;&#x9f61;&#x5fc5;&#x9808;&#x5728; <strong>10&#x5e74;(&#x542b;)&#x4ee5;&#x4e0b;</strong>&#xff0c;&#x4e14; <strong>6&#x516c;&#x5c3a;&#x5167;&#x7121;&#x6bd7;&#x9130;&#x9435;&#x76ae;&#x6216;&#x975e;&#x78da;(&#x92fc;&#x7b4b;)&#x6c34;&#x6ce5;&#x9020;&#x5efa;&#x7269;</strong>&#x3002;","children":[]},{"content":"&#x706b;&#x96aa;&#x81ea;&#x8ca0;&#x984d;&#xff1a;<strong>&#x6bcf;&#x4e00;&#x6b21;&#x4e8b;&#x6545;&#x8ce0;&#x511f;&#x91d1;&#x984d;&#x4e4b; 12%&#xff0c;&#x6700;&#x4f4e; 3 &#x842c;&#x5143;</strong>&#x3002;","children":[]},{"content":"&#x9644;&#x52a0;&#x96aa;&#x81ea;&#x8ca0;&#x984d;&#xff1a;<strong>&#x300c;&#x7121;&#x300d;</strong>&#x3002;","children":[]}]}]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E7%81%AB%E7%81%BD%E4%BF%9D%E9%9A%AA%E5%81%9C%E6%A5%AD%E6%90%8D%E5%A4%B1%E8%A3%9C%E5%84%9F%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x505c;&#x696d;&#x640d;&#x5931;&#x88dc;&#x511f;&#x9644;&#x52a0;&#x689d;&#x6b3e;</strong></a>","children":[{"content":"&#x4fdd;&#x969c;&#x9078;&#x9805;&#xff1a;&#x6bcf;&#x65e5;&#x88dc;&#x511f;&#x5b9a;&#x984d;&#x53ef;&#x9078; 1,000&#x5143;&#x3001;2,000&#x5143;&#x3001;3,000&#x5143; &#x6216; 5,000&#x5143;&#x3002;","children":[]},{"content":"&#x6700;&#x9ad8;&#x88dc;&#x511f;&#xff1a;&#x6bcf;&#x6b21;&#x6700;&#x9ad8; 60 &#x500b;&#x71df;&#x696d;&#x65e5;&#x3002;","children":[]},{"content":"&#x81ea;&#x8ca0;&#x984d;&#xff08;&#x6642;&#x9593;&#xff09;&#xff1a;<strong>&#x9023;&#x7e8c; 2 &#x500b;&#x71df;&#x696d;&#x65e5;</strong>&#x3002;","children":[]}]}]},{"content":"2. <a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA.pdf\">&#x516c;&#x5171;&#x610f;&#x5916;&#x8cac;&#x4efb;&#x4fdd;&#x96aa;</a>&#xff08;&#x5171;3&#x500b;&#x65b9;&#x6848;&#xff09;","children":[{"content":"<strong>&#x4fdd;&#x969c;&#x65b9;&#x6848;&#xff08;&#x6bcf;&#x4eba;&#x9ad4;&#x50b7; / &#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x9ad4;&#x50b7; / &#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x8ca1;&#x640d; / &#x7e3d;&#x4fdd;&#x984d;&#xff09;</strong>","children":[{"content":"&#x65b9;&#x6848;&#x4e00;&#xff1a;200&#x842c; / 1,000&#x842c; / 200&#x842c; / 2,400&#x842c;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e8c;&#xff1a;300&#x842c; / 3,000&#x842c; / 300&#x842c; / 4,800&#x842c;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e09;&#xff1a;600&#x842c; / 3,000&#x842c; / 300&#x842c; / 6,600&#x842c;","children":[]}]},{"content":"<strong>&#x81ea;&#x8ca0;&#x984d;</strong>&#xff1a;<strong>&#x300c;&#x7121;&#x300d;</strong>&#x3002;","children":[]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA%E9%A3%9F%E5%93%81%E4%B8%AD%E6%AF%92%E8%B2%AC%E4%BB%BB%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x98df;&#x54c1;&#x4e2d;&#x6bd2;&#x8cac;&#x4efb;&#x9644;&#x52a0;&#x689d;&#x6b3e;</strong></a><strong>&#x6578;&#x64da;</strong>","children":[{"content":"&#x4fdd;&#x969c;&#x984d;&#x5ea6;&#xff1a;&#x8207;&#x4e3b;&#x7d04;&#x5171;&#x7528;&#x6240;&#x9078;&#x65b9;&#x6848;&#x4e4b;&#x6700;&#x9ad8;&#x4fdd;&#x984d;&#x9650;&#x5236;&#xff08;&#x4f8b;&#x5982;&#x9078;&#x65b9;&#x6848;&#x4e00;&#xff0c;&#x55ae;&#x4e00;&#x4e8b;&#x6545;&#x4e0a;&#x9650;&#x5373;&#x70ba; 1,000 &#x842c;&#xff09;&#x3002;","children":[]},{"content":"&#x555f;&#x52d5;&#x689d;&#x4ef6;&#xff1a;<strong>2&#x4eba;&#x4ee5;&#x4e0a;</strong>&#x651d;&#x53d6;&#x76f8;&#x540c;&#x98df;&#x54c1;&#x767c;&#x751f;&#x76f8;&#x4f3c;&#x75c7;&#x72c0;&#x4e26;&#x5206;&#x96e2;&#x51fa;&#x76f8;&#x540c;&#x81f4;&#x75c5;&#x56e0;&#xff1b;&#x82e5;&#x662f;&#x7d30;&#x83cc;&#x6027;&#x6bd2;&#x7d20;&#x6216;&#x6025;&#x6027;&#x5316;&#x5b78;&#x6027;&#x4e2d;&#x6bd2;&#xff0c;<strong>1&#x4eba;</strong>&#x767c;&#x751f;&#x5373;&#x7b97;&#x3002;","children":[]},{"content":"&#x6ce8;&#x610f;&#x4e8b;&#x9805;&#xff1a;&#x4e0d;&#x542b;&#x300c;&#x5916;&#x5e36;&#x3001;&#x5916;&#x8ce3;&#x98df;&#x54c1;&#x300d;&#xff0c;&#x4e0d;&#x4fdd;&#x300c;&#x4f9b;&#x61c9;&#x9152;&#x985e;&#x300d;&#x5f15;&#x8d77;&#x4e4b;&#x4e2d;&#x6bd2;&#x3002;","children":[]}]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA%E6%85%B0%E5%95%8F%E9%87%91%E8%B2%BB%E7%94%A8%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE(%E7%94%B2%E5%BC%8F).pdf\"><strong>&#x6170;&#x554f;&#x91d1;&#x8cbb;&#x7528;&#x9644;&#x52a0;&#x689d;&#x6b3e;</strong></a><strong>&#x6578;&#x64da;</strong>","children":[{"content":"&#x50b7;&#x5bb3;&#x91ab;&#x7642;&#x6170;&#x554f;&#x91d1;&#xff1a;&#x6bcf;&#x4eba;&#x6700;&#x9ad8; <strong>1,000&#x5143;</strong> / &#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x6700;&#x9ad8; <strong>20,000&#x5143;</strong> / &#x4fdd;&#x96aa;&#x671f;&#x9593;&#x6700;&#x9ad8; <strong>50,000&#x5143;</strong>&#x3002;","children":[]},{"content":"&#x8eab;&#x6545;&#x6170;&#x554f;&#x91d1;&#xff1a;&#x6bcf;&#x4eba;&#x6700;&#x9ad8; <strong>50,000&#x5143;</strong> / &#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x6700;&#x9ad8; <strong>100,000&#x5143;</strong> / &#x4fdd;&#x96aa;&#x671f;&#x9593;&#x6700;&#x9ad8; <strong>200,000&#x5143;</strong>&#x3002;","children":[]}]},{"content":"<strong>&#x5176;&#x4ed6;&#x9644;&#x52a0;&#x8cac;&#x4efb;&#x6ce8;&#x610f;&#x4e8b;&#x9805;</strong>","children":[{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA%E6%8B%9B%E7%89%8C%E8%B2%AC%E4%BB%BB%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE(%E7%94%B2%E5%9E%8B).pdf\"><strong>&#x62db;&#x724c;&#x8cac;&#x4efb;</strong></a>&#xff1a;&#x4e0d;&#x4fdd;&#x79fb;&#x52d5;&#x5f0f;/&#x6d3b;&#x52d5;&#x5f0f;&#x62db;&#x724c;&#x3002;","children":[]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA%E5%81%9C%E8%BB%8A%E5%A0%B4%E8%B2%AC%E4%BB%BB%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x505c;&#x8eca;&#x5834;&#x8cac;&#x4efb;</strong></a>&#xff1a;&#x4e0d;&#x4fdd;&#x7aca;&#x76dc;&#x3001;&#x8eca;&#x8f1b;&#x522e;&#x640d;&#x3001;&#x4ee3;&#x5ba2;&#x505c;&#x8eca;&#x3001;&#x6a5f;&#x68b0;&#x8eca;&#x4f4d;&#x672a;&#x4f9d;&#x6cd5;&#x898f;&#x6aa2;&#x4fee;&#x7b49;&#x3002;","children":[]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%85%AC%E5%85%B1%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA%E9%9B%BB%E6%A2%AF%E8%B2%AC%E4%BB%BB%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x96fb;&#x68af;&#x8cac;&#x4efb;</strong></a>&#xff1a;&#x4e0d;&#x542b;&#x6c7d;&#x8eca;&#x7528;&#x6607;&#x964d;&#x6a5f;&#x6216;&#x6a5f;&#x68b0;&#x5f0f;&#x505c;&#x8eca;&#x5834;&#x3002;","children":[]}]}]},{"content":"3. <a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E7%8F%BE%E9%87%91%E4%BF%9D%E9%9A%AA.pdf\">&#x73fe;&#x91d1;&#x4fdd;&#x96aa;</a>&#xff08;&#x5171;3&#x500b;&#x65b9;&#x6848;&#xff09;","children":[{"content":"<strong>&#x4fdd;&#x969c;&#x65b9;&#x6848;&#xff08;&#x5eab;&#x5b58;&#x73fe;&#x91d1;&#x8207;&#x6ac3;&#x53f0;&#x73fe;&#x91d1;&#x5408;&#x4f75;&#x8a08;&#x7b97;&#x7e3d;&#x984d;&#xff09;</strong>","children":[{"content":"&#x65b9;&#x6848; a&#xff1a;&#x4fdd;&#x984d; <strong>5 &#x842c;&#x5143;</strong>","children":[]},{"content":"&#x65b9;&#x6848; b&#xff1a;&#x4fdd;&#x984d; <strong>10 &#x842c;&#x5143;</strong>","children":[]},{"content":"&#x65b9;&#x6848; c&#xff1a;&#x4fdd;&#x984d; <strong>20 &#x842c;&#x5143;</strong>","children":[]}]},{"content":"<strong>&#x81ea;&#x8ca0;&#x984d;</strong>&#xff1a;<strong>&#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x640d;&#x5931;&#x7684; 10%</strong>&#x3002;","children":[]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E7%8F%BE%E9%87%91%E4%BF%9D%E9%9A%AA%E7%AB%8A%E7%9B%9C%E5%AE%9A%E7%BE%A9%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x6ce8;&#x610f;&#x4e8b;&#x9805;(&#x542b;&#x7aca;&#x76dc;&#x5b9a;&#x7fa9;)</strong></a>&#xff1a;&#x4e0d;&#x4fdd;&#x54e1;&#x5de5;&#x7aca;&#x76dc;/&#x4fb5;&#x5360;&#x3001;&#x9ede;&#x9214;&#x932f;&#x8aa4;&#x3001;&#x975e;&#x71df;&#x696d;&#x6642;&#x9593;&#x91d1;&#x5eab;&#x672a;&#x9396;&#x59a5;&#x3001;&#x6ac3;&#x53f0;&#x7121;&#x4eba;&#x770b;&#x5b88;&#x6642;&#x4e4b;&#x640d;&#x5931;&#x3002;","children":[]}]},{"content":"4. <a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E9%9B%87%E4%B8%BB%E6%84%8F%E5%A4%96%E8%B2%AC%E4%BB%BB%E4%BF%9D%E9%9A%AA.pdf\">&#x96c7;&#x4e3b;&#x610f;&#x5916;&#x8cac;&#x4efb;&#x4fdd;&#x96aa;</a>&#xff08;&#x5171;2&#x500b;&#x65b9;&#x6848;&#xff09;","children":[{"content":"<strong>&#x4fdd;&#x969c;&#x65b9;&#x6848;&#xff08;&#x6bcf;&#x4eba;&#x9ad4;&#x50b7;&#x6b7b;&#x4ea1; / &#x6bcf;&#x4e00;&#x4e8b;&#x6545;&#x50b7;&#x4ea1; / &#x7e3d;&#x4fdd;&#x984d;&#xff09;</strong>","children":[{"content":"&#x65b9;&#x6848;&#x4e00;&#xff1a;200&#x842c; / 1,000&#x842c; / 2,000&#x842c;","children":[]},{"content":"&#x65b9;&#x6848;&#x4e8c;&#xff1a;300&#x842c; / 1,500&#x842c; / 3,000&#x842c;","children":[]}]},{"content":"<strong>&#x81ea;&#x8ca0;&#x984d;</strong>&#xff1a;&#x6bcf;&#x4e00;&#x6b21;&#x4e8b;&#x6545; <strong>NT$ 2,500</strong>&#x3002;","children":[]}]}]},{"content":"&#x4e8c;&#x3001; &#x6295;&#x4fdd;&#x524d;&#x61c9;&#x6e96;&#x5099;&#x8cc7;&#x6599;","children":[{"content":"1. &#x57fa;&#x672c;&#x6838;&#x4fdd;&#x8cc7;&#x6599;","children":[{"content":"<strong>&#x8981;&#x4fdd;&#x4eba;&#x8207;&#x88ab;&#x4fdd;&#x96aa;&#x4eba;&#x8cc7;&#x8a0a;</strong>&#xff1a;&#x516c;&#x53f8;&#x540d;&#x7a31;&#xff08;&#x672a;&#x767b;&#x8a18;&#x516c;&#x53f8;&#x8acb;&#x586b;&#x5e97;&#x540d;+&#x8ca0;&#x8cac;&#x4eba;&#x59d3;&#x540d;&#xff09;&#x3001;&#x8eab;&#x5206;&#x8b49;&#x5b57;&#x865f;&#x6216;&#x7d71;&#x4e00;&#x7de8;&#x865f;&#x3002;","children":[]},{"content":"<strong>&#x806f;&#x7d61;&#x8cc7;&#x8a0a;</strong>&#xff1a;&#x8ca0;&#x8cac;&#x4eba;&#x3001;&#x901a;&#x8a0a;&#x8655;&#x5730;&#x5740;&#x3001;&#x96fb;&#x8a71;&#x53ca;&#x50b3;&#x771f;&#x3002;","children":[]},{"content":"<strong>&#x71df;&#x696d;&#x5834;&#x6240;&#x8a73;&#x7d30;&#x8cc7;&#x6599;</strong>&#xff1a;","children":[{"content":"&#x5be6;&#x969b;&#x71df;&#x696d;&#x5730;&#x5740;&#x8207;&#x884c;&#x696d;&#x5225;&#x3002;","children":[]},{"content":"&#x7e3d;&#x9762;&#x7a4d;&#x576a;&#x6578;&#xff08;&#x4ee5;&#x5be6;&#x969b;&#x4f7f;&#x7528;&#x3001;&#x7ba1;&#x7406;&#x9762;&#x7a4d;&#x7bc4;&#x570d;&#x8a08;&#x7b97;&#xff09;&#x3002;","children":[]},{"content":"&#x5168;&#x68df;&#x6a13;&#x9ad8;&#xff08;&#x5c64;&#x6578;&#xff09;&#x3002;","children":[]}]}]},{"content":"2. &#x4fdd;&#x984d;&#x8a55;&#x4f30;&#x4f9d;&#x64da;&#x8cc7;&#x6599;","children":[{"content":"<strong>&#x5546;&#x696d;&#x706b;&#x96aa;&#x50f9;&#x503c;&#x4f30;&#x7b97;</strong>&#xff1a;&#x63d0;&#x4f9b;&#x5efa;&#x7bc9;&#x7269;&#x3001;&#x71df;&#x696d;&#x88dd;&#x4fee;&#x3001;&#x71df;&#x696d;&#x751f;&#x8ca1;&#x8a2d;&#x5099;&#x4e4b;&#x300c;&#x7e3d;&#x50f9;&#x503c;&#x300d;&#xff0c;&#x4ee5;&#x53ca;&#x8ca8;&#x7269;&#x7684;&#x300c;&#x6210;&#x672c;&#x8a08;&#x50f9;&#x300d;&#x7e3d;&#x984d;&#xff08;&#x4f5c;&#x70ba;&#x9078;&#x64c7;100&#x842c;~1000&#x842c;&#x65b9;&#x6848;&#x7684;&#x4f9d;&#x64da;&#xff09;&#x3002;","children":[]},{"content":"<strong>&#x54e1;&#x5de5;&#x8cc7;&#x8a0a;</strong>&#xff1a;&#x63d0;&#x4f9b;&#x5be6;&#x969b;&#x6295;&#x4fdd;&#x7684;&#x300c;&#x54e1;&#x5de5;&#x7e3d;&#x4eba;&#x6578;&#x300d;&#xff08;&#x96c7;&#x4e3b;&#x610f;&#x5916;&#x8cac;&#x4efb;&#x96aa;&#x4fdd;&#x8cbb;&#x4f9d;&#x4eba;&#x6578;&#x8a08;&#x7b97;&#xff09;&#x3002;","children":[]}]}]},{"content":"&#x4e09;&#x3001; &#x6295;&#x4fdd;&#x61c9;&#x6ce8;&#x610f;&#x4e8b;&#x9805;","children":[{"content":"1. &#x884c;&#x696d;&#x9650;&#x5236;&#x8207;&#x7279;&#x6b8a;&#x8655;&#x6240;","children":[{"content":"<strong>&#x9069;&#x7528;&#x884c;&#x696d;</strong>&#xff1a;&#x672c;&#x5c08;&#x6848;&#x50c5;&#x9650;&#x6307;&#x5b9a;&#x7684; 12 &#x5927;&#x884c;&#x696d;&#xff08;&#x5982;&#x9910;&#x98f2;&#x3001;&#x670d;&#x98fe;&#x3001;&#x8a3a;&#x6240;&#x3001;&#x88dc;&#x7fd2;&#x73ed;&#x3001;&#x8d85;&#x5546;&#x7b49;&#xff09;&#x3002;","children":[]},{"content":"<strong>&#x767e;&#x8ca8;&#x5546;&#x5834;&#x9664;&#x5916;</strong>&#xff1a;&#x4f4d;&#x65bc;&#x767e;&#x8ca8;&#x516c;&#x53f8;&#x3001;&#x8ce3;&#x5834;&#x3001;&#x8cfc;&#x7269;&#x4e2d;&#x5fc3;&#x5167;&#x7684;&#x5e97;&#x9762;&#xff0c;&#x56e0;&#x5c6c;&#x6df7;&#x5408;&#x71df;&#x696d;&#x6027;&#x8cea;&#x98a8;&#x96aa;&#x8f03;&#x8907;&#x96dc;&#xff0c;&#x4e0d;&#x9069;&#x7528;&#x91d1;&#x982d;&#x5bb6;&#x5c08;&#x6848;&#xff0c;&#x9700;&#x586b;&#x5beb;&#x4e00;&#x822c;&#x5546;&#x706b;&#x8981;&#x4fdd;&#x66f8;&#x300c;&#x500b;&#x6848;&#x5831;&#x50f9;&#x300d;&#x3002;","children":[]}]},{"content":"2. &#x5929;&#x707d;&#x9664;&#x5916;&#xff08;&#x5730;&#x9707;&#x8207;&#x98b1;&#x98a8;&#x6d2a;&#x6c34;&#xff09;","children":[{"content":"&#x672c;&#x5c08;&#x6848;&#x7684;&#x5546;&#x696d;&#x706b;&#x96aa;&#x57fa;&#x672c;&#x4fdd;&#x969c; <strong>&#x300c;&#x672a;&#x5305;&#x542b;&#x300d;</strong> &#x5730;&#x9707;&#x8207;&#x98b1;&#x98a8;&#x6d2a;&#x6c34;&#x96aa;&#x3002;&#x56e0;&#x5404;&#x5340;&#x8cbb;&#x7387;&#x5dee;&#x7570;&#x5927;&#xff0c;&#x82e5;&#x6709;&#x5929;&#x707d;&#x9632;&#x8b77;&#x9700;&#x6c42;&#xff0c;&#x5fc5;&#x9808;&#x53e6;&#x5916;&#x7533;&#x8acb;&#x500b;&#x6848;&#x5831;&#x50f9;&#x3002;","children":[]}]},{"content":"3. &#x7406;&#x8ce0;&#x7279;&#x6b8a;&#x898f;&#x5b9a;","children":[{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E9%87%8D%E7%BD%AE%E6%88%90%E6%9C%AC%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE%E3%80%90SB001%E3%80%91.pdf\"><strong>&#x91cd;&#x7f6e;&#x6210;&#x672c;&#x8ce0;&#x4ed8;</strong></a>&#xff1a;&#x5546;&#x696d;&#x706b;&#x96aa;&#x7406;&#x8ce0;&#x6642;&#xff0c;&#x5efa;&#x7bc9;&#x7269;&#x3001;&#x88dd;&#x4fee;&#x8207;&#x8a2d;&#x5099;&#x662f;&#x4ee5;&#x300c;&#x91cd;&#x7f6e;&#x6210;&#x672c;&#x300d;&#xff08;&#x4e0d;&#x6263;&#x9664;&#x6298;&#x820a;&#xff09;&#x70ba;&#x57fa;&#x790e;&#x8a08;&#x7b97;&#xff1b;&#x4f46;&#x300c;&#x8ca8;&#x7269;&#x300d;&#x4ecd;&#x4ee5;&#x5be6;&#x969b;&#x50f9;&#x503c;&#xff08;&#x6210;&#x672c;&#xff09;&#x8a08;&#x7b97;&#x3002;&#x6295;&#x4fdd;&#x4fdd;&#x984d;&#x61c9;&#x7b26;&#x5408;&#x5be6;&#x969b;&#x71df;&#x904b;&#x72c0;&#x6cc1;&#x3002;","children":[]},{"content":"<a href=\"金頭家保單條款/%E5%8D%97%E5%B1%B1%E7%94%A2%E7%89%A9%E5%B0%8F%E9%A1%8D%E8%B3%A0%E6%AC%BE%E9%99%84%E5%8A%A0%E6%A2%9D%E6%AC%BE.pdf\"><strong>&#x5c0f;&#x984d;&#x8ce0;&#x6b3e;&#x514d;&#x5206;&#x6524;</strong></a>&#xff1a;&#x82e5;&#x640d;&#x5931;&#x91d1;&#x984d;&#x672a;&#x9054;&#x7d04;&#x5b9a;&#x91d1;&#x984d;&#xff0c;&#x4e0d;&#x9069;&#x7528;&#x4e0d;&#x8db3;&#x984d;&#x4fdd;&#x96aa;&#x6bd4;&#x4f8b;&#x5206;&#x6524;&#xff0c;&#x4e14;&#x4e0d;&#x9700;&#x5c0d;&#x672a;&#x53d7;&#x640d;&#x8ca1;&#x7269;&#x9032;&#x884c;&#x56b4;&#x683c;&#x76e4;&#x9ede;&#x3002;","children":[]},{"content":"<strong>&#x96c7;&#x4e3b;&#x96aa;&#x62b5;&#x5145;&#x539f;&#x5247;</strong>&#xff1a;&#x82e5;&#x767c;&#x751f;&#x54e1;&#x5de5;&#x8077;&#x707d;&#xff0c;&#x4fdd;&#x96aa;&#x516c;&#x53f8;&#x7406;&#x8ce0;&#x6642;&#x6703;&#x5148;&#x300c;&#x62b5;&#x5145;&#x300d;&#x52de;&#x5de5;&#x8077;&#x696d;&#x707d;&#x5bb3;&#x4fdd;&#x96aa;&#x53ca;&#x4fdd;&#x8b77;&#x6cd5;&#x4e4b;&#x7d66;&#x4ed8;&#x6216;&#x88dc;&#x52a9;&#xff0c;&#x50c5;&#x91dd;&#x5c0d;&#x8d85;&#x904e;&#x52de;&#x4fdd;&#x7d66;&#x4ed8;&#x7684;&#x300c;&#x5dee;&#x984d;&#x90e8;&#x5206;&#x300d;&#x8ca0;&#x8ce0;&#x511f;&#x8cac;&#x4efb;&#x3002;","children":[]}]}]}]}
+
+  let mm;
+  const { Markmap, Toolbar } = window.markmap;
+
+  // 全局狀態
+  const state = {
+    expandLevel: 99
+  };
+
+  // 客戶投保狀態設定
+  let appState = {
+    customerName: "",
+    applied: false,
+    totalPremium: 0,
+    items: {
+      "商業火災保險": { checked: false, planText: "", premium: 0 },
+      "停業損失補償附加條款": { checked: false, planText: "", premium: 0 },
+      "公共意外責任保險": { checked: false, planText: "", premium: 0 },
+      "食品中毒責任附加條款": { checked: false, planText: "", premium: 0 },
+      "招牌責任": { checked: false, planText: "", premium: 0 },
+      "停車場責任": { checked: false, planText: "", premium: 0 },
+      "電梯責任": { checked: false, planText: "", premium: 0 },
+      "慰問金費用附加條款": { checked: false, planText: "", premium: 0 },
+      "現金保險": { checked: false, planText: "", premium: 0 },
+      "雇主意外責任保險": { checked: false, planText: "", premium: 0, rate: 0, count: 0 }
+    }
+  };
+
+  // 將 Tooltip 字典的 Key 對應到 appState.items 的 Key
+  const configKeyMapping = {
+      "商業火災保險": "商業火災保險",
+      "停業損失": "停業損失補償附加條款",
+      "公共意外責任保險": "公共意外責任保險",
+      "食品中毒責任": "食品中毒責任附加條款",
+      "慰問金費用": "慰問金費用附加條款",
+      "招牌責任": "招牌責任",
+      "停車場責任": "停車場責任",
+      "電梯責任": "電梯責任",
+      "現金保險": "現金保險",
+      "雇主意外責任保險": "雇主意外責任保險"
+  };
+
+  // 整理來自 DM、FAQ 及要保書附件的「保障與注意事項」提示資料
+  const tooltipContentDict = [
+    { 
+      key: "商業火災保險", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>承保範圍：包含建築物、營業裝修、營業生財設備及貨物。</li>
+              <li>最高保額：投保保險金額最高以 1,000 萬元為限（內含貨物以 300 萬為限）。</li>
+              <li>附加保障：涵蓋煙燻、爆炸、水漬、航空器墜落及機動車輛碰撞。</li>
+              <li>除外責任：基本保障未包含地震與颱風洪水險，有需求需另行個案報價。</li>
+              <li>理賠基礎：建築物及設備依重置成本理賠不扣折舊（貨物依實際成本計）。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「方案三：商業火險總保額 500 萬元」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>餐廳廚房氣爆引發大火造成裝潢與設備全毀，經評估修復的重置成本為 450 萬元。試算理賠：因損失金額未超過保額上限，產險公司依重置成本條款全額賠付 450 萬元。
+             </div>` 
+    },
+    { 
+      key: "停業損失", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障目的：補償因火災等承保事故導致必須停業整修的每日營業收入損失。</li>
+              <li>補償額度：投保時可選擇每日定額 1,000元、2,000元、3,000元或5,000元。</li>
+              <li>最高日數：每一次事故最高可補償 60 個營業日。</li>
+              <li>自負條件：設有時間自負額，需連續停業達 2 個營業日。</li>
+              <li>啟動條件：須為商業火險主約或其附加險承保之危險事故所致。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「停業損失：每日補償定額 5,000 元」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>火災致餐廳必須停業整修 32 天。試算理賠：依據條款需先扣除前 2 天之時間自負額，剩餘可理賠天數為 30 天。產險公司共理賠 30 天 × 5,000 元 = 15 萬元停業補償。
+             </div>` 
+    },
+    { 
+      key: "公共意外責任保險", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障範圍：保障因營業行為或場所設施不良，致第三人體傷或財損之賠償責任。</li>
+              <li>法規符合：符合政府各營業場所強制投保之消防安檢法令，免受行政裁罰。</li>
+              <li>最高保額：依政府法令規劃，保險期間內最高賠償金額達 6,600 萬元。</li>
+              <li>零自負額：本主約發生意外事故理賠時「無」自負額規定。</li>
+              <li>擴充保障：額外提供食物中毒、招牌掉落、電梯及停車場等附加責任保障。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「公共意外方案一：單一事故體傷 1,000 萬 / 財損 200 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>店面招牌起火波及路人受傷並延燒鄰居。經判定需賠償路人醫療 50 萬及鄰居財損 150 萬。試算理賠：兩項損失皆在保額限度內且無自負額，產險公司全額代為賠付共 200 萬元。
+             </div>` 
+    },
+    { 
+      key: "食品中毒責任", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障對象：保障消費者因食用店家提供之食品導致中毒的賠償責任。</li>
+              <li>啟動條件(一般)：2人以上攝取相同食品發生相似症狀，並分離出相同致病因。</li>
+              <li>啟動條件(特殊)：若為細菌性毒素或急性化學性中毒，1人發生即可啟動。</li>
+              <li>保額共用：保障額度與公共意外責任險主約共用所選方案之最高保額限制。</li>
+              <li>除外不保：不承保「外帶、外賣食品」以及「供應酒類」引起之中毒事故。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「公共意外方案一：單一事故體傷最高 1,000 萬元」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>內用客人因生食海鮮致 3 人集體感染諾羅病毒送醫，符合中毒理賠啟動條件。店家遭求償 30 萬元醫療與精神慰撫金。試算理賠：因損失未超保額 1,000 萬，產險公司全額代賠 30 萬元。
+             </div>` 
+    },
+    { 
+      key: "慰問金費用", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障目的：發生公共意外事故時，第一時間提供受害者慰問金以撫慰家屬。</li>
+              <li>傷害限額：每人最高 1,000 元 / 每一事故最高 20,000 元。</li>
+              <li>身故限額：每人最高 50,000 元 / 每一事故最高 100,000 元。</li>
+              <li>期間累計：保險期間內傷害最高 5 萬、身故最高 20 萬元。</li>
+              <li>給付性質：採定額補償，可與公共意外責任保險主約理賠金分開並行。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶附加「慰問金費用條款：每人傷害最高 1,000 元」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>客人在店內滑倒骨折送醫，老闆前往探視慰問。試算理賠：產險公司直接依條款定額給付 1,000 元傷害醫療慰問金給客人，且後續不影響原公共意外責任險的醫療賠付額度。
+             </div>` 
+    },
+    { 
+      key: "招牌責任", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障範圍：營業處所設置之廣告招牌因意外掉落致第三人傷亡或財損。</li>
+              <li>適用對象：適用於固定於牆面或營業處所建築之懸掛式招牌。</li>
+              <li>除外規定：不承保「移動式」或「活動式」招牌（如落地立牌）。</li>
+              <li>賠償啟動：須為被保險人依法應負之民事賠償責任方可啟動理賠。</li>
+              <li>額度共用：理賠保險金額受公共意外責任主約的額度上限限制。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「公共意外方案一：單一事故財損 200 萬」並附加招牌責任。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>颱風天固定式招牌因支架老舊掉落，砸毀路邊停放車輛，車主求償維修費 5 萬元。試算理賠：因屬固定式招牌且未超過 200 萬財損保額，產險公司全額代為賠付 5 萬元。
+             </div>` 
+    },
+    { 
+      key: "停車場責任", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障範圍：提供顧客停車之專屬停車場發生意外致第三人傷亡或財損之責任。</li>
+              <li>除外不保(竊盜)：不承保車輛或車內物品遭竊盜之損失。</li>
+              <li>除外不保(刮損)：不承保車輛不明原因之刮損毀壞。</li>
+              <li>除外不保(服務)：不承保代客停車服務過程中所發生的事故。</li>
+              <li>除外不保(設施)：機械車位若未依法規檢修造成之損失不在承保範圍內。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「公共意外方案一：單一事故財損 200 萬」並附加停車場責任。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>顧客於店家平面專屬停車場停車時，照明設備鬆脫砸中車頂，車廠維修估價 8 萬元。試算理賠：因屬設施意外且損失未達保額上限，產險公司全額代為理賠顧客 8 萬元。
+             </div>` 
+    },
+    { 
+      key: "電梯責任", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障範圍：營業處所內設置之客用電梯發生意外致第三人受傷或財損。</li>
+              <li>適用條件：需依政府法規進行定期安全檢查並取得許可合格證。</li>
+              <li>不保事項(一)：保障範圍不包含「汽車用昇降機」之意外事故。</li>
+              <li>不保事項(二)：保障範圍不包含「機械式停車場」之設備意外。</li>
+              <li>額度計算：保險金額與公共意外主約共用，受主約最高額度限制。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「公共意外方案一：單一事故體傷 1,000 萬」並附加電梯責任。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>餐廳客用電梯突發故障急速下墜，造成 2 名顧客扭傷及驚嚇，共求償 20 萬元。試算理賠：電梯有定期安檢且求償額度未超過保單上限，產險公司全額給付受傷顧客醫療費及賠償共 20 萬元。
+             </div>` 
+    },
+    { 
+      key: "現金保險", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障範圍：保障每日流通之櫃台現金及存於金庫/保險櫃內之現金。</li>
+              <li>承保危險：涵蓋遭受竊盜、搶奪、強盜、火災或爆炸導致之現金損失。</li>
+              <li>投保額度：櫃台與金庫現金合併計算，最高可投保金額為 20 萬元。</li>
+              <li>自負規定：每一次事故被保險人需承擔損失金額之 10% 作為自負額。</li>
+              <li>除外責任：不保員工侵占、點鈔錯誤、櫃台無人看守及非營業時間金庫未鎖。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「現金保險方案 b：最高保額 10 萬元」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>宵小半夜潛入店內，撬開已鎖妥之保險櫃偷走 5 萬元現金。試算理賠：損失 5 萬元未超保額，依約定需扣除損失金額 10% 作為自負額 (5,000 元)，產險公司實際理賠 4.5 萬元現金。
+             </div>` 
+    },
+    { 
+      key: "雇主意外責任保險", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>保障對象：保障雇主對所屬員工在執行職務期間發生意外的賠償責任。</li>
+              <li>理賠啟動：員工受傷、死亡，且雇主依法須負民事損害賠償責任時啟動。</li>
+              <li>最高額度：保險期間內最高賠償達 3,000 萬元（每人死亡最高 300 萬）。</li>
+              <li>抵充原則：理賠時會先扣除勞保及職災保護法之給付，僅針對「差額」賠付。</li>
+              <li>自負規定：每一意外事故雇主需先自行負擔 2,500 元之自負額。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「雇主意外責任方案一：每人體傷死亡保額 200 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>員工滑倒燙傷，依法雇主需賠償 60 萬。勞保局已給付職災補償 40 萬。試算理賠：依抵充原則產險先扣除勞保 40 萬（差額 20 萬），再扣除每次事故 2,500 元自負額後，產險公司理賠差額 197,500 元。
+             </div>` 
+    },
+    { 
+      key: "水泥平屋頂", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>建築條件：建築物總樓層必須在 14 樓(含)以下。</li>
+              <li>結構要求：外牆必須為鋼筋混凝土、鋼骨混凝土或磚造。</li>
+              <li>費率優勢：此類一級建築結構火災風險較低，享有較優費率。</li>
+              <li>火險自負額：主約商業火災保險理賠時「無」自負額規定。</li>
+              <li>附加險自負額：附加之各項火災險（如煙燻、水漬等）亦「無」自負額。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「商火方案二：保額 300 萬」且建築為 5 樓鋼筋混凝土。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>店面發生火災造成 100 萬損失。試算理賠：因符合水泥平屋頂的一級建材條件且未超過總保額，火災保險理賠「無」需扣除自負額，故產險公司全額理賠 100 萬元。
+             </div>` 
+    },
+    { 
+      key: "金屬", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>屋齡限制：建築物屋齡必須在 10 年(含)以下方可投保本專案。</li>
+              <li>距離限制：周圍 6 公尺內不可有毗鄰之鐵皮或非磚/鋼筋水泥造建物。</li>
+              <li>結構定義：屋頂為金屬(鐵皮)材質，外牆為磚水泥或金屬造。</li>
+              <li>火險自負額：每一次事故需負擔賠償金額的 12%，且最低為 3 萬元。</li>
+              <li>附加險自負額：各項火災附加險部分理賠時則為「無」自負額。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「商火方案三：保額 500 萬」且店面為金屬/鐵皮屋。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>火災造成 100 萬損失。試算理賠：依鐵皮屋條款需扣除損失金額 12% 之自負額 (12萬元，且已達最低 3 萬元門檻)，因此產險公司實際理賠金額為 88 萬元。
+             </div>` 
+    },
+    { 
+      key: "鐵皮", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>屋齡限制：建築物屋齡必須在 10 年(含)以下方可投保本專案。</li>
+              <li>距離限制：周圍 6 公尺內不可有毗鄰之鐵皮或非磚/鋼筋水泥造建物。</li>
+              <li>結構定義：屋頂為金屬(鐵皮)材質，外牆為磚水泥或金屬造。</li>
+              <li>火險自負額：每一次事故需負擔賠償金額的 12%，且最低為 3 萬元。</li>
+              <li>附加險自負額：各項火災附加險部分理賠時則為「無」自負額。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「商火方案三：保額 500 萬」且店面為金屬/鐵皮屋。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>火災造成 100 萬損失。試算理賠：依鐵皮屋條款需扣除損失金額 12% 之自負額 (12萬元，且已達最低 3 萬元門檻)，因此產險公司實際理賠金額為 88 萬元。
+             </div>` 
+    },
+    { 
+      key: "行業限制", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>適用12大行業：(1)餐飲 (2)麵包糕餅 (3)服飾成衣 (4)民宿旅館(無泳池) (5)機車店(無電焊噴漆) (6)通信/眼鏡/鐘錶 (7)超商/藥妝 (8)補習/才藝班 (9)美容理髮 (10)幼兒園 (11)一般內兒/家醫診所 (12)牙科/眼科/復健診所。</li>
+              <li>面積限制：限營業處所之總面積低於 100 坪（不含）以內之店家。</li>
+              <li>排除場所：位於百貨公司、大型賣場或購物中心內的店面無法適用。</li>
+              <li>排除原因：綜合商場屬混合營業性質，火災延燒風險較單一店面複雜。</li>
+              <li>替代方案：不適用專案之店家，需另外填寫一般商火要保書採個案報價。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶開設「一般街邊服飾店」投保「商火方案一：保額 100 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>因符合指定之第 3 項行業且非設於百貨內，可直接適用專案。若發生 50 萬元火災損失，未超過保額上限，產險公司將依專案條款順理理賠 50 萬元。
+             </div>` 
+    },
+    { 
+      key: "百貨", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>限制對象：位於百貨公司、賣場、購物中心、商場內的店面。</li>
+              <li>限制原因：此類場所因屬於混合營業性質，非單一營業行為。</li>
+              <li>風險評估：因整體商場之風險較為複雜，不適用金頭家專案統一定價。</li>
+              <li>投保方式：須填寫一般商火要保書進行「個案報價」方可投保。</li>
+              <li>保障差異：個案報價核保後，理賠權益依客製化保單條款為準。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶為「百貨公司內專櫃」，改採一般商火要保書投保「保額 200 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>因營業場所特殊不適用金頭家專案，透過個案報價承保後發生火災造成 100 萬損失。試算理賠：未超過 200 萬保單額度，產險公司依雙方約定之客製化條款理賠 100 萬元。
+             </div>` 
+    },
+    { 
+      key: "天災除外", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>基本承保：專案保障涵蓋火災、爆炸、機動車碰撞等，但「不含天災」。</li>
+              <li>排除項目：地震、颱風及洪水皆屬於基本專案的除外不保事項。</li>
+              <li>排除原因：台灣各縣市與地段的天災風險費率差異極大，無法單一定價。</li>
+              <li>需求對應：若店家位於斷層帶或易淹水區，強烈建議附加天災保險。</li>
+              <li>投保方式：如需增加地震或颱風洪水險，必須向產險公司申請個案報價。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶僅投保「金頭家專案商火方案三：保額 500 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>強烈颱風導致店面積水，造成設備 50 萬損失。試算理賠：因專案基本保障「不含」天災，故無法理賠；若客戶於投保時有額外申請「個案加保颱風洪水險」，方可獲賠 50 萬損失。
+             </div>` 
+    },
+    { 
+      key: "重置成本賠付", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>理賠基礎：發生承保事故時，建築物、營業裝修與設備採重置成本計算。</li>
+              <li>不扣折舊：重置成本指以同品質之新品重新修復或重置的價格，不扣折舊。</li>
+              <li>貨物除外：惟店內銷售之「貨物」仍以實際現金價值（成本價）進行計算。</li>
+              <li>投保提醒：要保時填寫的保險金額，應符合現時重新購置新品的實際總價。</li>
+              <li>足額保障：確保店家在遭受火災全毀後，有足夠資金購置新設備重新開業。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「商火方案二：保額 300 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>餐廳使用 5 年的營業烤箱燒毀（當初買 10 萬，折舊現值 5 萬）。試算理賠：因市面上重置同品質全新烤箱需花費 12 萬元，產險公司依重置成本條款不扣折舊，直接賠付全新購置費 12 萬元。
+             </div>` 
+    },
+    { 
+      key: "小額賠款免分攤", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>分攤原則：一般商業火險若投保金額低於實際總價值（不足額投保），理賠時須依比例打折。</li>
+              <li>條款優勢：附加此條款後，只要單次事故損失金額低於約定之「小額標準」，即可豁免比例分攤。</li>
+              <li>簡化流程：發生小額損失時，不需對全店「未受損財物」進行嚴格盤點與估價。</li>
+              <li>快速理賠：可大幅減少理賠公證與勘定時間，讓店家能盡速拿到理賠金進行復業。</li>
+              <li>適用範圍：僅限於商業火災保險及其附加險之小額財產損失理賠適用。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶店面實際總價值 500 萬，但僅投保「商火方案一：保額 100 萬」（假設小額免分攤約定門檻為 5 萬元）。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>發生小火災燒毀 4 萬元設備。試算理賠：原本因不足額投保（100萬/500萬=1/5），依比例分攤僅能賠付 8,000 元。但因本次損失(4萬)未達小額門檻(5萬)，適用本附加條款豁免比例分攤，產險公司直接全額賠付 4 萬元。
+             </div>` 
+    },
+    { 
+      key: "抵充原則", 
+      text: `<ol class="list-decimal pl-5 space-y-1 mb-2 text-justify">
+              <li>適用險種：專指「雇主意外責任保險」發生員工職災時的理賠計算方式。</li>
+              <li>法定優先：依法律規定，雇主依法應負之賠償責任可先由社會保險給付抵充。</li>
+              <li>抵充項目：包含勞工保險、職業災害勞工保護法之各項現金給付或補助。</li>
+              <li>差額賠償：產險公司僅針對雇主應賠償總額「扣除」勞保等給付後的差額負責。</li>
+              <li>減輕保費：因有抵充機制使產險公司承擔風險為第二線，故雇主險保費較便宜。</li>
+             </ol>
+             <div class="bg-white/60 p-2 md:p-3 rounded-lg border border-green-300 mt-2">
+              <span class="font-bold text-green-800 text-[13px] md:text-sm">📌 理賠案例：</span><br>
+              <span class="font-semibold text-rose-700">【投保假設】客戶投保「雇主意外責任方案二：每一事故 1,500 萬」。</span><br>
+              <span class="font-semibold text-[#14532d]">【理賠說明】</span>員工受傷共求償 100 萬元。試算理賠：勞保局已給付職災醫療及傷病補助 70 萬。依抵充原則，產險公司先扣除 70 萬，再扣除條款約定之 2,500 元自負額，實際理賠差額 297,500 元。
+             </div>` 
+    }
+  ];
+
+  // 取得下拉選單文字的 Helper
+  function getSelectedText(selectId) {
+      const el = document.getElementById(selectId);
+      return el.options[el.selectedIndex].text;
+  }
+
+  // 預處理資料：標示互動節點，並依照投保狀態加上標籤與樣式 (加入 currentContext 追蹤所屬險種)
+  function applyConfigToNode(node, config, currentContext = null) {
+      const cleanText = node.content.replace(/<[^>]*>?/gm, '').trim();
+      const hasLink = node.content.includes('<a ');
+      const matchedItem = tooltipContentDict.find(item => cleanText.includes(item.key));
+      
+      // 判斷目前節點屬於哪一個主險種的脈絡
+      let nextContext = currentContext;
+      if (matchedItem && configKeyMapping[matchedItem.key]) {
+          nextContext = configKeyMapping[matchedItem.key];
+      }
+
+      let finalContent = node.content;
+      let isInsured = null; // true, false, null
+
+      // 確認該節點是否有對應的保險設定 (主節點)
+      if (matchedItem) {
+          const configKey = configKeyMapping[matchedItem.key];
+          if (configKey && config.items[configKey]) {
+              isInsured = config.items[configKey].checked;
+          }
+      }
+
+      // 包覆 interactive-base (如果尚未包覆)
+      if (hasLink || matchedItem) {
+          if (!finalContent.includes('interactive-base')) {
+              if (hasLink) {
+                  finalContent = finalContent.replace(/(<a[^>]*>.*?<\/a>)/i, '<span class="interactive-base">$1</span>');
+              } else if (finalContent.includes('<strong')) {
+                  finalContent = finalContent.replace(/(<strong[^>]*>.*?<\/strong>)/i, '<span class="interactive-base">$1</span>');
+              } else {
+                  finalContent = `<span class="interactive-base">${finalContent}</span>`;
+              }
+          }
+      }
+
+      // 如果有套用設定且有對應的投保狀態，則加入狀態標籤與修改樣式
+      if (config.applied && isInsured !== null) {
+          if (isInsured) {
+               finalContent += `<span class="ml-2 inline-block px-1.5 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded shadow-sm border border-green-200 align-middle">✅ 已投保</span>`;
+          } else {
+               finalContent += `<span class="ml-2 inline-block px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs font-bold rounded shadow-sm border border-gray-200 align-middle">❌ 未投保</span>`;
+               finalContent = finalContent.replace('interactive-base', 'interactive-base-uninsured');
+          }
+      }
+
+      // 處理子項目的「方案選擇」標註
+      if (config.applied && nextContext && config.items[nextContext]) {
+          const itemConfig = config.items[nextContext];
+          const isPlanNode = /^方案\s*[一二三四五abc]/i.test(cleanText);
+          
+          if (isPlanNode) {
+              const planMatch = cleanText.match(/^方案\s*([一二三四五abc])/i);
+              const selectedPlanMatch = (itemConfig.planText || "").match(/^方案\s*([一二三四五abc])/i);
+              
+              if (planMatch) {
+                  const planId = planMatch[1].toLowerCase();
+                  const selectedPlanId = selectedPlanMatch ? selectedPlanMatch[1].toLowerCase() : null;
+
+                  if (itemConfig.checked && planId === selectedPlanId) {
+                      // 客戶選擇的方案
+                      finalContent += `<span class="ml-2 inline-block px-1.5 py-0.5 bg-sky-100 text-sky-700 text-xs font-bold rounded shadow-sm border border-sky-200 align-middle">🎯 您的選擇</span>`;
+                      // 藍字粗體凸顯
+                      finalContent = `<span class="text-sky-700 font-bold">${finalContent}</span>`;
+                  } else {
+                      // 未選擇的方案或該主約未保 (加上刪除線與反灰)
+                      finalContent = `<span class="text-gray-400 line-through opacity-70">${finalContent}</span>`;
+                  }
+              }
+          }
+
+          // 針對「停業損失補償附加條款」的金額選項特殊處理 (因為它沒有方案一二三，只有數字選項)
+          if (nextContext === '停業損失補償附加條款' && cleanText.includes('每日補償定額可選')) {
+              if (itemConfig.checked) {
+                  const amountMatch = (itemConfig.planText || "").match(/(1,000|2,000|3,000|5,000)/);
+                  if (amountMatch) {
+                      const amount = amountMatch[1];
+                      const regex = new RegExp(`(${amount}元)`, 'g');
+                      // 替換該節點內的特定金額文字為高亮樣式
+                      finalContent = finalContent.replace(regex, `<span class="text-sky-700 font-bold bg-sky-100 px-1 rounded border border-sky-200">$1 (🎯 您的選擇)</span>`);
+                  }
+              } else {
+                  // 如果未投保，整行直接反灰加刪除線
+                  finalContent = `<span class="text-gray-400 line-through opacity-70">${finalContent}</span>`;
+              }
+          }
+      }
+
+      node.content = finalContent;
+
+      if (node.children && node.children.length > 0) {
+          node.children.forEach(c => applyConfigToNode(c, config, nextContext));
+      }
+  }
+
+  function renderMindmap() {
+    // 深拷貝資料以防直接修改到原始數據
+    const currentData = JSON.parse(JSON.stringify(sourceData));
+
+    // 套用客戶投保規劃至節點
+    applyConfigToNode(currentData, appState);
+
+    // 遞迴控制各節點層級的折疊狀態
+    function applyLevel(node, target, cur = 0) {
+      if (!node.children || node.children.length === 0) return;
+      node.payload = { fold: cur >= target ? 1 : 0 };
+      node.children.forEach(c => applyLevel(c, target, cur + 1));
+    }
+    
+    applyLevel(currentData, state.expandLevel);
+
+    // 更新標題及保費顯示
+    const titleEl = document.getElementById('main-title');
+    const summaryBar = document.getElementById('summary-bar');
+    const summaryPremium = document.getElementById('summary-premium');
+
+    if (appState.applied) {
+        if (appState.customerName) {
+            titleEl.innerHTML = `南山產物「金頭家」專案投保指南 <span class="text-orange-600 ml-2">【${appState.customerName}】專屬規劃</span>`;
+        } else {
+            titleEl.innerHTML = `南山產物「金頭家」專案投保指南 <span class="text-orange-600 ml-2">【專屬規劃】</span>`;
+        }
+        summaryPremium.innerText = `$${appState.totalPremium.toLocaleString()}`;
+        summaryBar.classList.remove('hidden');
+        summaryBar.classList.add('flex');
+    }
+
+    if (!mm) {
+      // 【修復重疊問題】清空 SVG 內部既有元素與舊工具列，避免匯出檔案重新載入時與舊有內容重疊
+      document.getElementById('mindmap').innerHTML = '';
+      const oldToolbar = document.getElementById('markmap-toolbar-container');
+      if (oldToolbar) {
+          oldToolbar.remove();
+      }
+
+      // 首次初始化
+      mm = Markmap.create("#mindmap", { 
+        duration: 500, 
+        autoFit: true, 
+        paddingX: 50 
+      }, currentData);
+
+      // 附加右下角工具列 (放大縮小功能)
+      const toolbar = new Toolbar();
+      toolbar.attach(mm);
+      const toolbarEl = toolbar.render();
+      toolbarEl.id = 'markmap-toolbar-container'; // 加上 ID 以便後續識別與清理
+      toolbarEl.setAttribute("style", "position:absolute;bottom:20px;right:20px");
+      document.querySelector('.relative').append(toolbarEl);
+    } else {
+      // 更新資料
+      mm.setData(currentData);
+      setTimeout(() => mm.fit(), 200);
+    }
+  }
+
+  // 展開層級控制鈕點擊邏輯
+  function setExpand(level) { 
+    state.expandLevel = level; 
+    [1, 2, 3, 4, 99].forEach(lv => { 
+        const el = document.getElementById(lv === 99 ? 'exp-all' : `exp-${lv}`); 
+        if(el) {
+          if(lv === level) {
+            el.className = 'px-4 py-1.5 text-sm font-bold rounded-lg bg-orange-600 text-white shadow transition-all';
+          } else {
+            el.className = 'px-4 py-1.5 text-sm font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all';
+          }
+        }
+    }); 
+    renderMindmap(); 
+  }
+
+  // --- Modal 設定相關邏輯 ---
+  function openConfigModal() {
+      document.getElementById('config-modal').classList.remove('hidden');
+  }
+
+  function closeConfigModal() {
+      document.getElementById('config-modal').classList.add('hidden');
+  }
+
+  function togglePubAll() {
+      const isChecked = document.getElementById('cfg-pub-all').checked;
+      const subItems = ['food', 'sign', 'park', 'elev', 'cond'];
+      subItems.forEach(item => {
+          const chk = document.getElementById(`cfg-pub-${item}`);
+          const prem = document.getElementById(`cfg-pub-${item}-premium`);
+          chk.checked = isChecked;
+          if (isChecked) {
+              prem.value = "免繳保費";
+          } else {
+              if (prem.value === "免繳保費") prem.value = "";
+          }
+      });
+      calcTotal();
+  }
+
+  function checkPubAllState() {
+      const subItems = ['food', 'sign', 'park', 'elev', 'cond'];
+      let allChecked = true;
+      subItems.forEach(item => {
+          if (!document.getElementById(`cfg-pub-${item}`).checked) {
+              allChecked = false;
+          }
+      });
+      const masterChk = document.getElementById('cfg-pub-all');
+      if (masterChk) masterChk.checked = allChecked;
+  }
+
+  function openRateTableModal() {
+      const tbody = document.getElementById('rate-table-body');
+      const emptyMsg = document.getElementById('rate-table-empty-msg');
+      const table = tbody.parentElement;
+      
+      tbody.innerHTML = '';
+      
+      let hasItems = false;
+      
+      // 設定客戶名稱
+      const nameEl = document.getElementById('rate-table-customer-name');
+      nameEl.innerText = appState.customerName ? `【${appState.customerName}】` : '';
+
+      // 產生表格列
+      for (const [itemName, config] of Object.entries(appState.items)) {
+          if (config.checked) {
+              hasItems = true;
+              const tr = document.createElement('tr');
+              tr.className = "hover:bg-sky-50/50 transition-colors";
+              
+              let planDesc = config.planText || '';
+              // 特別處理雇主意外險人數顯示
+              if (itemName === '雇主意外責任保險' && config.count > 0 && config.rate > 0) {
+                  planDesc += ` (每人 ${config.rate} 元 × ${config.count} 人)`;
+              }
+
+              let premiumDisplay = `$${config.premium.toLocaleString()}`;
+              if (config.premiumText === "免繳保費") {
+                  premiumDisplay = `<span class="text-green-600">免繳保費</span>`;
+              }
+
+              tr.innerHTML = `
+                  <td class="border border-gray-300 px-4 py-2 font-bold text-sky-800">${itemName}</td>
+                  <td class="border border-gray-300 px-4 py-2 text-gray-700">${planDesc}</td>
+                  <td class="border border-gray-300 px-4 py-2 text-right font-semibold text-gray-900 whitespace-nowrap">${premiumDisplay}</td>
+              `;
+              tbody.appendChild(tr);
+          }
+      }
+      
+      document.getElementById('rate-table-total').innerText = `$${appState.totalPremium.toLocaleString()}`;
+      
+      if (hasItems) {
+          table.classList.remove('hidden');
+          emptyMsg.classList.add('hidden');
+      } else {
+          table.classList.add('hidden');
+          emptyMsg.classList.remove('hidden');
+      }
+      
+      document.getElementById('rate-table-modal').classList.remove('hidden');
+  }
+
+  function closeRateTableModal() {
+      document.getElementById('rate-table-modal').classList.add('hidden');
+  }
+
+  function openHelpModal() {
+      document.getElementById('help-modal').classList.remove('hidden');
+  }
+
+  function closeHelpModal() {
+      document.getElementById('help-modal').classList.add('hidden');
+  }
+
+  function calcEmpPremium() {
+      const rate = Number(document.getElementById('cfg-emp-rate').value) || 0;
+      const count = Number(document.getElementById('cfg-emp-count').value) || 0;
+      const total = rate * count;
+      
+      // 如果有輸入任一數值則計算總價
+      if (document.getElementById('cfg-emp-rate').value !== '' && document.getElementById('cfg-emp-count').value !== '') {
+           document.getElementById('cfg-emp-premium').value = total;
+      } else {
+           document.getElementById('cfg-emp-premium').value = '';
+      }
+      calcTotal();
+  }
+
+  function calcTotal() {
+      let total = 0;
+      if (document.getElementById('cfg-fire').checked) total += Number(document.getElementById('cfg-fire-premium').value) || 0;
+      if (document.getElementById('cfg-biz').checked) total += Number(document.getElementById('cfg-biz-premium').value) || 0;
+      if (document.getElementById('cfg-pub').checked) total += Number(document.getElementById('cfg-pub-premium').value) || 0;
+      if (document.getElementById('cfg-pub-food').checked) total += Number(document.getElementById('cfg-pub-food-premium').value) || 0;
+      if (document.getElementById('cfg-pub-sign').checked) total += Number(document.getElementById('cfg-pub-sign-premium').value) || 0;
+      if (document.getElementById('cfg-pub-park').checked) total += Number(document.getElementById('cfg-pub-park-premium').value) || 0;
+      if (document.getElementById('cfg-pub-elev').checked) total += Number(document.getElementById('cfg-pub-elev-premium').value) || 0;
+      if (document.getElementById('cfg-pub-cond').checked) total += Number(document.getElementById('cfg-pub-cond-premium').value) || 0;
+      if (document.getElementById('cfg-cash').checked) total += Number(document.getElementById('cfg-cash-premium').value) || 0;
+      if (document.getElementById('cfg-emp').checked) total += Number(document.getElementById('cfg-emp-premium').value) || 0;
+      
+      document.getElementById('cfg-total-premium').innerText = "$" + total.toLocaleString();
+  }
+
+  function syncModalToState() {
+      appState.customerName = document.getElementById('cfg-customer-name').value.trim();
+      
+      appState.items['商業火災保險'] = {
+          checked: document.getElementById('cfg-fire').checked,
+          planText: getSelectedText('cfg-fire-plan'),
+          premium: Number(document.getElementById('cfg-fire-premium').value) || 0
+      };
+      appState.items['停業損失補償附加條款'] = {
+          checked: document.getElementById('cfg-biz').checked,
+          planText: getSelectedText('cfg-biz-plan'),
+          premium: Number(document.getElementById('cfg-biz-premium').value) || 0
+      };
+      appState.items['公共意外責任保險'] = {
+          checked: document.getElementById('cfg-pub').checked,
+          planText: getSelectedText('cfg-pub-plan'),
+          premium: Number(document.getElementById('cfg-pub-premium').value) || 0
+      };
+      appState.items['食品中毒責任附加條款'] = {
+          checked: document.getElementById('cfg-pub-food').checked,
+          premium: Number(document.getElementById('cfg-pub-food-premium').value) || 0,
+          premiumText: document.getElementById('cfg-pub-food-premium').value,
+          planText: "依主約保額限制"
+      };
+      appState.items['招牌責任'] = {
+          checked: document.getElementById('cfg-pub-sign').checked,
+          premium: Number(document.getElementById('cfg-pub-sign-premium').value) || 0,
+          premiumText: document.getElementById('cfg-pub-sign-premium').value,
+          planText: "依主約保額限制"
+      };
+      appState.items['停車場責任'] = {
+          checked: document.getElementById('cfg-pub-park').checked,
+          premium: Number(document.getElementById('cfg-pub-park-premium').value) || 0,
+          premiumText: document.getElementById('cfg-pub-park-premium').value,
+          planText: "依主約保額限制"
+      };
+      appState.items['電梯責任'] = {
+          checked: document.getElementById('cfg-pub-elev').checked,
+          premium: Number(document.getElementById('cfg-pub-elev-premium').value) || 0,
+          premiumText: document.getElementById('cfg-pub-elev-premium').value,
+          planText: "依主約保額限制"
+      };
+      appState.items['慰問金費用附加條款'] = {
+          checked: document.getElementById('cfg-pub-cond').checked,
+          premium: Number(document.getElementById('cfg-pub-cond-premium').value) || 0,
+          premiumText: document.getElementById('cfg-pub-cond-premium').value,
+          planText: "依附加條款約定"
+      };
+      appState.items['現金保險'] = {
+          checked: document.getElementById('cfg-cash').checked,
+          planText: getSelectedText('cfg-cash-plan'),
+          premium: Number(document.getElementById('cfg-cash-premium').value) || 0
+      };
+      appState.items['雇主意外責任保險'] = {
+          checked: document.getElementById('cfg-emp').checked,
+          planText: getSelectedText('cfg-emp-plan'),
+          premium: Number(document.getElementById('cfg-emp-premium').value) || 0,
+          rate: Number(document.getElementById('cfg-emp-rate').value) || 0,
+          count: Number(document.getElementById('cfg-emp-count').value) || 0
+      };
+
+      appState.totalPremium = Object.values(appState.items).reduce((sum, item) => sum + item.premium, 0);
+  }
+
+  function syncStateToModal() {
+      if(!appState) return;
+      document.getElementById('cfg-customer-name').value = appState.customerName || '';
+      
+      const setField = (key, chkId, planId, premId) => {
+          if(appState.items[key]) {
+              document.getElementById(chkId).checked = appState.items[key].checked;
+              
+              if (appState.items[key].premiumText !== undefined && appState.items[key].premiumText !== "") {
+                  document.getElementById(premId).value = appState.items[key].premiumText;
+              } else {
+                  document.getElementById(premId).value = appState.items[key].premium || '';
+              }
+              
+              if (planId) {
+                  // 簡單的比對選擇
+                  const select = document.getElementById(planId);
+                  for (let i = 0; i < select.options.length; i++) {
+                      if (select.options[i].text === appState.items[key].planText) {
+                          select.selectedIndex = i;
+                          break;
+                      }
+                  }
+              }
+          }
+      };
+
+      setField('商業火災保險', 'cfg-fire', 'cfg-fire-plan', 'cfg-fire-premium');
+      setField('停業損失補償附加條款', 'cfg-biz', 'cfg-biz-plan', 'cfg-biz-premium');
+      setField('公共意外責任保險', 'cfg-pub', 'cfg-pub-plan', 'cfg-pub-premium');
+      setField('食品中毒責任附加條款', 'cfg-pub-food', null, 'cfg-pub-food-premium');
+      setField('招牌責任', 'cfg-pub-sign', null, 'cfg-pub-sign-premium');
+      setField('停車場責任', 'cfg-pub-park', null, 'cfg-pub-park-premium');
+      setField('電梯責任', 'cfg-pub-elev', null, 'cfg-pub-elev-premium');
+      setField('慰問金費用附加條款', 'cfg-pub-cond', null, 'cfg-pub-cond-premium');
+      setField('現金保險', 'cfg-cash', 'cfg-cash-plan', 'cfg-cash-premium');
+      setField('雇主意外責任保險', 'cfg-emp', 'cfg-emp-plan', 'cfg-emp-premium');
+
+      // 額外設定雇主意外的人數與費率
+      if(appState.items['雇主意外責任保險']) {
+          document.getElementById('cfg-emp-rate').value = appState.items['雇主意外責任保險'].rate || '';
+          document.getElementById('cfg-emp-count').value = appState.items['雇主意外責任保險'].count || '';
+      }
+
+      checkPubAllState();
+      calcTotal();
+  }
+
+  function applyConfig() {
+      syncModalToState();
+      appState.applied = true;
+      
+      // 更新隱藏的 JSON 區塊
+      document.getElementById('app-state-data').textContent = JSON.stringify(appState);
+      
+      closeConfigModal();
+      renderMindmap();
+  }
+
+  // --- 關鍵優化區域：保證匯出檔案跟母版完全一致乾淨 ---
+  function exportConfigHTML() {
+      // 確保最新設定已套用至 appState
+      syncModalToState();
+      appState.applied = true;
+      document.getElementById('app-state-data').textContent = JSON.stringify(appState);
+      closeConfigModal();
+
+      // 使用 cloneNode 複製整個 HTML 結構，如此一來不會影響使用者目前畫面
+      const htmlClone = document.documentElement.cloneNode(true);
+
+      // 在被複製出來的這份 HTML 裡，清除 D3/Markmap 動態生成的元素，
+      // 確保新儲存的檔案不會夾帶上一次渲染的節點而導致版面錯亂，
+      // 這保證了新檔案完全等於「原始乾淨的母版」+「最新的 JSON 設定」。
+      const clonedMindmap = htmlClone.querySelector('#mindmap');
+      if (clonedMindmap) {
+          clonedMindmap.innerHTML = '';
+      }
+      const clonedToolbar = htmlClone.querySelector('#markmap-toolbar-container');
+      if (clonedToolbar) {
+          clonedToolbar.remove();
+      }
+
+      // 額外清理 Tooltip 可能殘留的拖曳位置與內聯樣式，保證新檔案的說明框能完美居中及維持拖曳功能
+      const clonedTooltip = htmlClone.querySelector('#mindmap-tooltip');
+      if (clonedTooltip) {
+          clonedTooltip.removeAttribute('style');
+          clonedTooltip.removeAttribute('data-link-url'); // 確保匯出時不殘留前一次懸停抓到的連結
+          clonedTooltip.innerHTML = '';
+          clonedTooltip.className = 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 hidden w-[92%] sm:w-[85%] md:w-[75%] max-w-[480px] bg-[#dcfce7] border-2 border-[#86efac] text-[#14532d] p-4 md:p-6 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] z-[1000] transition-all duration-300 opacity-0 scale-95 break-words leading-relaxed';
+      }
+
+      // 取得乾淨、完整的 HTML (包含費率表按鈕等所有的原始結構)
+      let htmlContent = '<!DOCTYPE html>\n' + htmlClone.outerHTML;
+
+      // 組合檔名並觸發下載
+      const now = new Date();
+      const twYear = now.getFullYear() - 1911;
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const dateStr = `${twYear}${month}${day}`;
+      const cName = appState.customerName ? appState.customerName : '';
+      const fileName = `${dateStr}${cName}金頭家投保說明.html`;
+
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  }
+
+  // --- 畫面載入與事件綁定 ---
+  window.onload = () => {
+    // 檢查是否有儲存的設定檔 (例如從匯出的檔案開啟)
+    const stateDataEl = document.getElementById('app-state-data');
+    if (stateDataEl && stateDataEl.textContent.trim() !== '{}' && stateDataEl.textContent.trim() !== '') {
+        try {
+            appState = JSON.parse(stateDataEl.textContent);
+            if (appState.applied) {
+                syncStateToModal();
+            }
+        } catch (e) { 
+            console.error("無法解析設定檔資料", e); 
+        }
+    }
+
+    renderMindmap();
+
+    // 設置隱藏式說明展示 (Tooltip) 的事件監聽
+    const tooltipEl = document.getElementById('mindmap-tooltip');
+    const svgEl = document.getElementById('mindmap');
+
+    // 新增：Tooltip 延遲隱藏機制與拖曳變數
+    let hideTooltipTimeout;
+    let isDragging = false;
+    let isDragged = false; // 新增：用於判斷是否為拖曳行為，避免拖曳放開時誤判為點擊
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let startX = 0;
+    let startY = 0;
+    let tooltipClickTimer = null; // 用於區分單擊與雙擊的計時器
+
+    svgEl.addEventListener('mouseover', (e) => {
+      const node = e.target.closest('.markmap-node');
+      if (node) {
+        // 避免在同一個節點內部（如字體和節點圓圈）移動時重複觸發
+        if (e.relatedTarget && node.contains(e.relatedTarget)) return;
+
+        const textEl = node.querySelector('foreignObject') || node.querySelector('text');
+        if (textEl) {
+          const textContent = (textEl.textContent || textEl.innerText || "").trim();
+          const aTag = node.querySelector('a');
+          const hasLink = aTag !== null;
+          const matchedItem = tooltipContentDict.find(item => textContent.includes(item.key));
+          
+          // 若為互動節點 (預處理時會符合這兩項條件之一)，則加入特定類別啟動 CSS 動畫
+          if (matchedItem || hasLink) {
+            node.classList.add('interactive-hover');
+          }
+
+          // 儲存該節點的連結，以便在 Tooltip 上雙擊時可以提取開啟
+          if (aTag) {
+              tooltipEl.dataset.linkUrl = aTag.getAttribute('href');
+          } else {
+              tooltipEl.removeAttribute('data-link-url');
+          }
+          
+          // 若有對應的隱藏式說明資料，才顯示說明面板
+          if (matchedItem) {
+            // 清除隱藏計時器並重置拖曳位置回中央
+            clearTimeout(hideTooltipTimeout);
+            if (!isDragging) {
+                dragOffsetX = 0;
+                dragOffsetY = 0;
+                tooltipEl.style.transform = '';
+            }
+
+            // 解析出無標籤的乾淨標題 (以左括號或冒號截斷多餘說明)
+            const cleanTitle = textContent.replace(/<[^>]*>?/gm, '').split('(')[0].split('：')[0].trim();
+            let displayText = matchedItem.text;
+
+            // 動態替換理賠說明
+            if (appState.applied) {
+                const configKey = configKeyMapping[matchedItem.key];
+                if (configKey && appState.items[configKey]) {
+                    const itemConfig = appState.items[configKey];
+                    if (itemConfig.checked) {
+                        // 已投保：替換投保假設
+                        const myPlan = `【您的投保內容】${matchedItem.key}：${itemConfig.planText}`;
+                        displayText = displayText.replace(/<span[^>]*>【投保假設】.*?<\/span><br>/i, `<span class="font-semibold text-sky-800 bg-sky-100 px-1 rounded">${myPlan}</span><br>`);
+                    } else {
+                        // 未投保：加上警告框，並讓原本的範例變淡
+                        const uninsuredWarning = `<div class="bg-red-50 border-l-4 border-red-500 p-2.5 mb-3 text-red-700 font-bold text-sm rounded shadow-sm">⚠️ 您目前尚未規劃此保障，若發生此類事故將無法理賠。以下為一般範例參考：</div>`;
+                        displayText = displayText.replace(/<div class="bg-white\/60/i, `${uninsuredWarning}<div class="bg-white/60 opacity-65`);
+                    }
+                }
+            }
+            
+            tooltipEl.innerHTML = `
+              <div id="tooltip-drag-handle" class="font-bold border-b border-[#86efac] pb-2 mb-2 text-[#166534] text-base md:text-lg cursor-move select-none flex items-center justify-between" title="按住此處可拖曳移動">
+                <div class="flex items-center"><span class="mr-1">💡</span> ${cleanTitle}</div>
+                <div class="text-[11px] font-normal bg-green-200/60 px-2 py-0.5 rounded-full text-[#14532d] border border-green-300 shadow-sm flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9a2 2 0 100-4 2 2 0 000 4zm4 6a2 2 0 100-4 2 2 0 000 4zm0 0l-4-4m4 4l4-4m-4 4v6"></path></svg>
+                  可拖曳
+                </div>
+              </div>
+              <div class="text-[13.5px] md:text-[15px] text-[#14532d] tracking-wide">
+                ${displayText}
+              </div>
+            `;
+            
+            tooltipEl.style.display = 'block';
+            
+            // 強制重繪以觸發過渡動畫
+            void tooltipEl.offsetWidth;
+            tooltipEl.classList.remove('opacity-0', 'scale-95');
+            tooltipEl.classList.add('opacity-100', 'scale-100');
+          }
+        }
+      }
+    });
+
+    svgEl.addEventListener('mouseout', (e) => {
+      const node = e.target.closest('.markmap-node');
+      if (node) {
+        if (e.relatedTarget && node.contains(e.relatedTarget)) return;
+
+        // 滑開時移除放大與紅色效果
+        node.classList.remove('interactive-hover');
+
+        // 恢復說明框隱藏的狀態與動畫設定 (改用 setTimeout 延遲提供拖曳緩衝)
+        hideTooltipTimeout = setTimeout(() => {
+          tooltipEl.classList.remove('opacity-100', 'scale-100');
+          tooltipEl.classList.add('opacity-0', 'scale-95');
+          setTimeout(() => { 
+            if (tooltipEl.classList.contains('opacity-0')) {
+                tooltipEl.style.display = 'none'; 
+            }
+          }, 300);
+        }, 300);
+      }
+    });
+
+    // --- 新增：Tooltip 本身的滑鼠懸停與拖曳功能 ---
+    tooltipEl.addEventListener('mouseenter', () => {
+        clearTimeout(hideTooltipTimeout);
+    });
+
+    tooltipEl.addEventListener('mouseleave', () => {
+        if (isDragging) return; // 拖曳中不隱藏
+        hideTooltipTimeout = setTimeout(() => {
+            tooltipEl.classList.remove('opacity-100', 'scale-100');
+            tooltipEl.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => { 
+                if (tooltipEl.classList.contains('opacity-0')) {
+                    tooltipEl.style.display = 'none'; 
+                }
+            }, 300);
+        }, 300);
+    });
+
+    tooltipEl.addEventListener('mousedown', (e) => {
+        isDragged = false; // 每次按下滑鼠時先重置拖曳狀態
+        if (e.target.closest('#tooltip-drag-handle')) {
+            isDragging = true;
+            tooltipEl.style.transition = 'none'; // 拖曳時取消動畫確保流暢
+            startX = e.clientX - dragOffsetX;
+            startY = e.clientY - dragOffsetY;
+            e.preventDefault();
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        isDragged = true; // 確實有移動才標記為拖曳，避免單純點擊被誤判
+        dragOffsetX = e.clientX - startX;
+        dragOffsetY = e.clientY - startY;
+        // 疊加原本的 -50% 置中效果與滑鼠偏移量
+        tooltipEl.style.transform = `translate(calc(-50% + ${dragOffsetX}px), calc(-50% + ${dragOffsetY}px)) scale(1)`;
+    });
+
+    document.addEventListener('mouseup', (e) => {
+        if (isDragging) {
+            isDragging = false;
+            tooltipEl.style.transition = ''; // 恢復 CSS 動畫
+            
+            // 檢查放開時滑鼠是否還在 Tooltip 範圍內，若無則啟動隱藏
+            const rect = tooltipEl.getBoundingClientRect();
+            const isHovering = (
+                e.clientX >= rect.left && e.clientX <= rect.right &&
+                e.clientY >= rect.top && e.clientY <= rect.bottom
+            );
+            
+            if (!isHovering) {
+                hideTooltipTimeout = setTimeout(() => {
+                    tooltipEl.classList.remove('opacity-100', 'scale-100');
+                    tooltipEl.classList.add('opacity-0', 'scale-95');
+                    setTimeout(() => { 
+                        if (tooltipEl.classList.contains('opacity-0')) {
+                            tooltipEl.style.display = 'none'; 
+                        }
+                    }, 300);
+                }, 300);
+            }
+        }
+    });
+
+    // 關閉說明的共用函式
+    function closeTooltipAction() {
+        clearTimeout(hideTooltipTimeout);
+        tooltipEl.classList.remove('opacity-100', 'scale-100');
+        tooltipEl.classList.add('opacity-0', 'scale-95');
+        setTimeout(() => { 
+            if (tooltipEl.classList.contains('opacity-0')) {
+                tooltipEl.style.display = 'none'; 
+            }
+        }, 300);
+    }
+
+    // --- 修改：點擊 Tooltip 單擊關閉，雙擊開啟條款連結 ---
+    tooltipEl.addEventListener('click', (e) => {
+        // 如果剛才的操作是拖曳，就不觸發點擊行為
+        if (isDragged) return;
+        
+        if (tooltipClickTimer) {
+            // 雙擊判斷：若計時器存在，表示這是短時間內的第二次點擊
+            clearTimeout(tooltipClickTimer);
+            tooltipClickTimer = null;
+            
+            // 提取網址並開啟保單條款
+            const linkUrl = tooltipEl.dataset.linkUrl;
+            if (linkUrl) {
+                window.open(linkUrl, '_blank'); 
+            }
+            
+            // 雙擊後一樣執行關閉說明框
+            closeTooltipAction();
+        } else {
+            // 單擊判斷：啟動 250 毫秒計時器，若時間內無第二次點擊，則視為單擊關閉
+            tooltipClickTimer = setTimeout(() => {
+                tooltipClickTimer = null;
+                closeTooltipAction();
+            }, 250);
+        }
+    });
+
+  };
+</script>
+</body>
+</html>
